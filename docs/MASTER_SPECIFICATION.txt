@@ -1,3 +1,6 @@
+ADDITIONAL CONFIRMED CHANGE — 30 OCTOBER 2026
+Group multiple orders/shipments consistently throughout every operational sidebar section. Use packing-list groups before assignment and separate vehicle/customer-shipment groups afterwards, with a shared work selection across sections and refresh. Do not merge separate shipments merely because the customer matches. Company settings remain global.
+
 CURRENT CONFIRMED CHANGE — 30 OCTOBER 2026
 The application is for Electro Group of Industries (Electrotech Services). Use this branding throughout the app, labels, documents, connector, and deployment. Use simple English and straightforward screens. All dispatch controls and earlier workflow requirements continue to apply. This correction overrides the previous branding references in the original prompt below. Sample product identities and quantities are test fixtures, not the company’s catalogue.
 

@@ -105,3 +105,9 @@ Keep logs bounded and private. Include correlation IDs in bug reports. The appli
 The build executed a real custom-format backup and restore into a new disposable UTF-8 database. All 23 table row counts and posting job IDs/hashes/states matched. This demonstrates the local procedure; it does not establish a cloud provider's retention or PITR policy.
 
 Repeatable synthetic workload: initialise a separate database ending in `_load` with the same migrations/seed, point a separate API instance at it, and run `tests/load.mjs` with DISPATCH_LOAD_CONFIRM=ISOLATED, DISPATCH_TEST_URL, DISPATCH_TEST_DATABASE and DISPATCH_TEST_PASSWORD set. LOAD_ITEMS defaults to 5,000, LOAD_CARTONS to 10,000 (maximum 100,000), LOAD_EVENTS to 500,000, LOAD_OPERATORS to 5 (also 10 or 20), LOAD_SECONDS to 60 (up to 3,600) and LOAD_CADENCE_MS to 1,000. The harness inserts clearly labelled synthetic fixtures into the same schema, scans through the actual API and verifies saved acceptance counts. It reports machine specification and measured p95. The large/sustained benchmark has not been executed in this build.
+
+## Grouped work across the sidebar
+
+Use Show work above each screen to choose All work, a packing list, a vehicle trip, or one customer shipment. The same selection stays active when switching screens or refreshing. Use Show all work to clear it. Packing lists hold cartons before reservation; assigned cartons are grouped by their customer shipment and vehicle. Selecting a vehicle shows all of its customers. Two shipments for the same customer still have separate IDs and groups. Settings always apply to the company.
+
+On Trips & customers or Home, use a shipment’s Labels, Loading or Billing button to open that section with the correct shipment already selected. Loading choices include vehicle, customer, destination and shipment ID. Do not change work while a scan result is uncertain; recover the original scan first.

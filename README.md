@@ -22,6 +22,8 @@ For native Windows development, run the API on 5080 with a PostgreSQL connection
 
 ## Implemented stages
 
+- Shared work selection and grouped packing lists, vehicle trips and customer shipments across all operational sections. Same-customer shipments stay separate; the selection survives sidebar navigation and refresh. Settings remain company-wide.
+
 - PostgreSQL/EF migrations, HttpOnly sessions, CSRF, server-side permissions, company scope, append-only audit and durable request/outbox records.
 - Packed drafts and strict all-or-nothing CSV/.xlsx preview, grouped/individual formats, physical approval and unique carton creation.
 - Genuine QR A4 PDF jobs, revision-aware IDs, reasoned reprints, separate attachment and supervisor scan verification, holds and API content correction/repack.

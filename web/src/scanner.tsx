@@ -11,13 +11,20 @@ import { type Context, Badge, Field, Empty } from "./main";
 import { date, totals, type Row } from "./domain";
 import * as api from "./api";
 import { plainLabel } from "./brand";
+import { ShipmentChoices } from "./work-ui";
 type Result = { outcome: string; message: string; id?: string };
 type Pending = { envelope: api.Envelope; shipmentId: string; at: string };
 const pendingKey = "electro-group-uncertain-scan-v1";
 const legacyPendingKey = "kriyantha-uncertain-scan-v1";
+export function hasPendingScan() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(pendingKey) ?? localStorage.getItem(legacyPendingKey) ?? "null");
+    return !!saved?.envelope?.requestId;
+  } catch { return false; }
+}
 export function LoadingScreen(ctx: Context) {
-  const { s, sample, run, refresh } = ctx;
-  const [shipmentId, setShipmentId] = useState(""),
+  const { all: s, sample, run, refresh } = ctx;
+  const [shipmentId, setShipmentId] = useState(ctx.work.kind === "shipment" ? ctx.work.id : ""),
     [station, setStation] = useState("LOADING-PC-01"),
     [sessionId, setSessionId] = useState(""),
     [started, setStarted] = useState(false),
@@ -244,6 +251,7 @@ export function LoadingScreen(ctx: Context) {
             value={shipmentId}
             disabled={!!pending || inflight.current}
             onChange={(e) => {
+              if (!ctx.selectWork(e.target.value ? { kind: "shipment", id: e.target.value } : { kind: "all" })) return;
               setShipmentId(e.target.value);
               setStarted(false);
               setSessionId("");
@@ -251,14 +259,7 @@ export function LoadingScreen(ctx: Context) {
             }}
           >
             <option value="">Choose a shipment</option>
-            {s.shipments
-              .filter((x) => !x.loadApproved && x.state !== "Cancelled")
-              .map((x) => (
-                <option key={x.id} value={x.id}>
-                  {s.customers.find((c) => c.id === x.customerId)?.name} ·{" "}
-                  {x.id}
-                </option>
-              ))}
+            <ShipmentChoices ctx={ctx} shipments={ctx.s.shipments.filter((x) => !x.loadApproved && x.state !== "Cancelled")} />
           </select>
         </Field>
         <Field label="Workstation">

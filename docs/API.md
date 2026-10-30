@@ -51,3 +51,7 @@ Print states: Prepared, Submitted, Failed, Unknown, OperatorConfirmed. Return di
 Connector routes require X-Connector-Id and X-Connector-Key; no browser cookie. POST /connector/heartbeat requires company, environment=Test, tallyReachable, version, detail. POST /connector/masters updates already-linked native item IDs only, at most 500 items [{nativeId,name,unit,balance}], with exact company/environment. Unknown Tally masters are not automatically created. GET /connector/jobs/next returns 409 Blocked in this stage.
 
 POST /maintenance/outbox requires Admin and CSRF. It marks a bounded audit-feed polling batch delivered, not delivery to a printer or Tally.
+
+## Related work views
+
+GET /api/work/{kind}/{id}?page=0 accepts kind packing, trip or shipment. It requires a valid session and verifies the record belongs to that company; unknown or other-company records return 404 and unsupported kinds return 400. It returns related cartons (500 per page), cartonTotal/hasMore, manifests, trips, shipments, allocations, billings, jobs, returns, labels and audit. The UI merges authoritative details by ID before applying a display filter; it retains full loaded inventory for reservation and complete loaded shipment details for pricing. No command, approval, tenant permission or Tally posting policy is weakened by the view.

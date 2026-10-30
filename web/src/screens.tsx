@@ -28,8 +28,11 @@ import {
   csvRows,
   importGroups,
   safeCsv,
+  parseQr,
 } from "./domain";
 import { labelPdf, packingPdf, download } from "./labels";
+import { GroupedRecords, ShipmentChoices } from "./work-ui";
+import { shipmentName } from "./work";
 export function Heading({
   eyebrow,
   title,
@@ -102,7 +105,7 @@ export function PackingScreen(ctx: Context) {
       <section className="panel">
         {s.manifests.length ? (
           <div className="table-wrap">
-            <table>
+            <GroupedRecords ctx={ctx} rows={s.manifests} type="packing">{(records) => (<table>
               <thead>
                 <tr>
                   <th>PACKING LIST</th>
@@ -113,7 +116,7 @@ export function PackingScreen(ctx: Context) {
                 </tr>
               </thead>
               <tbody>
-                {s.manifests.map((m) => {
+                {records.map((m) => {
                   const groups = parse<Group[]>(m.groups);
                   return (
                     <tr key={m.id}>
@@ -165,7 +168,7 @@ export function PackingScreen(ctx: Context) {
                   );
                 })}
               </tbody>
-            </table>
+            </table>)}</GroupedRecords>
           </div>
         ) : (
           <Empty
@@ -283,7 +286,11 @@ function PackedEditor({
             groups,
             ...(m.id ? { id: m.id, version: m.version } : {}),
           };
-          if (await action(ctx, "saveManifest", data)) close();
+          const result = await action(ctx, "saveManifest", data);
+          if (result) {
+            close();
+            if (!m.id) ctx.selectWork({ kind: "packing", id: result.id });
+          }
         }}
       >
         <Field label="Packing list name">
@@ -596,16 +603,14 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
               !may(ctx, "PackingClerk", "PackingSupervisor")
             }
             onClick={async () => {
-              if (
-                await action(ctx, "importManifest", {
+              const result = await action(ctx, "importManifest", {
                   name,
                   warehouseId: ctx.s.warehouses[0]?.id,
                   customerId: null,
                   notes: "Validated import. No partial import performed.",
                   groups: preview.groups,
-                })
-              )
-                close();
+                });
+              if (result) { close(); ctx.selectWork({ kind: "packing", id: result.id }); }
             }}
           >
             Save as a draft
@@ -682,6 +687,7 @@ export function CartonScreen(ctx: Context) {
         at 100% / actual size. Test dimensions on your printer first.
       </div>
       {error && <div className="notice error">{error}</div>}
+      {ctx.work.kind === "all" && s.cartons.length < s.cartonTotal && <div className="notice amber">Choose a packing list or shipment above to load its carton details. The all-work list shows the first page.</div>}
       <section className="panel">
         <div className="toolbar">
           <div className="search">
@@ -693,7 +699,7 @@ export function CartonScreen(ctx: Context) {
             />
           </div>
           <span>
-            {s.cartons.length} of {s.cartonTotal} cartons shown
+            {rows.length} of {ctx.work.kind === "all" ? s.cartonTotal : ctx.all.workCartonTotal ?? s.cartonTotal} cartons shown
           </span>
           <button
             className="secondary small"
@@ -717,21 +723,19 @@ export function CartonScreen(ctx: Context) {
         </div>
         {rows.length ? (
           <div className="table-wrap">
-            <table>
+            <GroupedRecords ctx={ctx} rows={rows} type="carton">{(records, group) => (<table>
               <thead>
                 <tr>
                   <th>
                     <input
-                      aria-label="Select current page"
+                      aria-label={"Select shown cartons in " + group.title}
                       type="checkbox"
                       checked={
-                        rows.length > 0 &&
-                        rows.every((c) => selected.includes(c.id))
+                        records.length > 0 &&
+                        records.every((c) => selected.includes(c.id))
                       }
                       onChange={(e) =>
-                        setSelected(
-                          e.target.checked ? rows.map((c) => c.id) : [],
-                        )
+                        setSelected((previous) => e.target.checked ? [...new Set([...previous, ...records.map((c) => c.id)])] : previous.filter((id) => !records.some((c) => c.id === id)))
                       }
                     />
                   </th>
@@ -743,7 +747,7 @@ export function CartonScreen(ctx: Context) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((c) => (
+                {records.map((c) => (
                   <tr key={c.id}>
                     <td>
                       <input
@@ -833,7 +837,7 @@ export function CartonScreen(ctx: Context) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table>)}</GroupedRecords>
           </div>
         ) : (
           <Empty
@@ -852,6 +856,12 @@ export function CartonScreen(ctx: Context) {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            if (ctx.work.kind !== "all") {
+              try {
+                const scanned = parseQr(qr, s.company.id);
+                if (!s.cartons.some((c) => c.id === scanned.id)) throw Error("This carton is outside the selected work. Choose its packing list or shipment first.");
+              } catch (e) { setError((e as Error).message); return; }
+            }
             if (
               await action(ctx, "verifyCarton", {
                 qr,
@@ -891,7 +901,7 @@ export function CartonScreen(ctx: Context) {
           <div className="panel-heading">
             <h2>Label print jobs</h2>
           </div>
-          <table>
+          <GroupedRecords ctx={ctx} rows={s.labels} type="label">{(records) => (<table>
             <thead>
               <tr>
                 <th>JOB</th>
@@ -901,7 +911,7 @@ export function CartonScreen(ctx: Context) {
               </tr>
             </thead>
             <tbody>
-              {s.labels.map((j) => (
+              {records.map((j) => (
                 <tr key={j.id}>
                   <td className="mono">{j.id.slice(0, 15)}</td>
                   <td>{date(j.createdAt)}</td>
@@ -938,7 +948,7 @@ export function CartonScreen(ctx: Context) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table>)}</GroupedRecords>
         </section>
       )}
       {history && (
@@ -1030,6 +1040,7 @@ export function TripsScreen(ctx: Context) {
                 >
                   Add customer & cartons
                 </button>
+                <button className="secondary small" onClick={() => ctx.selectWork({ kind: "trip", id: t.id })}>Show all customers on this trip</button>
                 <button
                   className="primary small"
                   disabled={
@@ -1079,7 +1090,7 @@ export function TripsScreen(ctx: Context) {
                     <div className="button-row">
                       <button
                         className="secondary small"
-                        onClick={() => ctx.navigate("loading")}
+                        onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("loading"); }}
                       >
                         <ScanLine size={15} />
                         Load
@@ -1103,6 +1114,8 @@ export function TripsScreen(ctx: Context) {
                       >
                         Approve load
                       </button>
+                      <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("cartons"); }}>Labels</button>
+                      <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("billing"); }}>Billing</button>
                       <button
                         className="text-link"
                         onClick={async () => {
@@ -1184,14 +1197,12 @@ export function TripsScreen(ctx: Context) {
           <form
             onSubmit={async (e) => {
               e.preventDefault();
-              if (
-                await action(ctx, "createTrip", {
+              const result = await action(ctx, "createTrip", {
                   vehicle,
                   driver,
                   transporter,
-                })
-              )
-                setCreating(false);
+                });
+              if (result) { setCreating(false); ctx.selectWork({ kind: "trip", id: result.id }); }
             }}
           >
             <Field label="Vehicle registration">
@@ -1252,7 +1263,7 @@ export function TripsScreen(ctx: Context) {
             stay available for another day or vehicle.
           </p>
           <div className="allocation-list">
-            {s.cartons
+            {(ctx.work.kind === "packing" ? s.cartons : ctx.all.cartons)
               .filter(
                 (c) =>
                   c.state === "Available" &&
@@ -1288,15 +1299,13 @@ export function TripsScreen(ctx: Context) {
             className="primary wide"
             disabled={!ids.length}
             onClick={async () => {
-              if (
-                await action(ctx, "allocate", {
+              const result = await action(ctx, "allocate", {
                   tripId: allocating,
                   customerId: customer,
                   destination,
                   ids,
-                })
-              )
-                setAllocating(null);
+                });
+              if (result) { setAllocating(null); ctx.selectWork({ kind: "shipment", id: result.id }); }
             }}
           >
             Reserve {ids.length} cartons
@@ -1332,7 +1341,7 @@ export function BillingScreen(ctx: Context) {
         </div>
         {s.shipments.filter((sh) => sh.state !== "Cancelled").length ? (
           <div className="table-wrap">
-            <table>
+            <GroupedRecords ctx={ctx} rows={s.shipments.filter((sh) => sh.state !== "Cancelled")} type="shipment">{(records) => (<table>
               <thead>
                 <tr>
                   <th>SHIPMENT / CUSTOMER</th>
@@ -1343,9 +1352,7 @@ export function BillingScreen(ctx: Context) {
                 </tr>
               </thead>
               <tbody>
-                {s.shipments
-                  .filter((sh) => sh.state !== "Cancelled")
-                  .map((sh) => {
+                {records.map((sh) => {
                     const bill = s.billings.find(
                       (b) =>
                         b.shipmentId === sh.id &&
@@ -1428,7 +1435,7 @@ export function BillingScreen(ctx: Context) {
                     );
                   })}
               </tbody>
-            </table>
+            </table>)}</GroupedRecords>
           </div>
         ) : (
           <Empty
@@ -1446,7 +1453,7 @@ export function BillingScreen(ctx: Context) {
           <Badge tone="amber">Tally setup needed</Badge>
         </div>
         {s.jobs.length ? (
-          <table>
+          <GroupedRecords ctx={ctx} rows={s.jobs} type="job">{(records) => (<table>
             <thead>
               <tr>
                 <th>OPERATION</th>
@@ -1456,7 +1463,7 @@ export function BillingScreen(ctx: Context) {
               </tr>
             </thead>
             <tbody>
-              {s.jobs.map((j) => (
+              {records.map((j) => (
                 <tr key={j.id}>
                   <td>
                     <strong className="mono">{j.id.slice(0, 16)}</strong>
@@ -1472,7 +1479,7 @@ export function BillingScreen(ctx: Context) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table>)}</GroupedRecords>
         ) : (
           <Empty
             title="No invoices sent"
@@ -1499,7 +1506,7 @@ function BillingEditor({
   shipment: Row;
   close: () => void;
 }) {
-  const s = ctx.s;
+  const s = ctx.all;
   const ids = s.allocations
     .filter((a) => a.shipmentId === shipment.id && a.active)
     .map((a) => a.cartonId);
@@ -1961,7 +1968,7 @@ export function ReturnsScreen(ctx: Context) {
       </div>
       <section className="panel">
         {s.returns.length ? (
-          <table>
+          <GroupedRecords ctx={ctx} rows={s.returns} type="return">{(records) => (<table>
             <thead>
               <tr>
                 <th>ORIGINAL CARTON</th>
@@ -1971,7 +1978,7 @@ export function ReturnsScreen(ctx: Context) {
               </tr>
             </thead>
             <tbody>
-              {s.returns.map((r) => (
+              {records.map((r) => (
                 <tr key={r.id}>
                   <td>
                     <strong>{r.cartonId}</strong>
@@ -2016,7 +2023,7 @@ export function ReturnsScreen(ctx: Context) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table>)}</GroupedRecords>
         ) : (
           <Empty
             title="No returned cartons"
@@ -2059,13 +2066,7 @@ export function ReturnsScreen(ctx: Context) {
                 required
               >
                 <option value="">Select original shipment</option>
-                {s.shipments
-                  .filter((sh) => sh.state === "Departed")
-                  .map((sh) => (
-                    <option key={sh.id} value={sh.id}>
-                      {sh.id}
-                    </option>
-                  ))}
+                <ShipmentChoices ctx={ctx} shipments={s.shipments.filter((sh) => sh.state === "Departed")} />
               </select>
             </Field>
             <Field label="Original carton ID">
@@ -2114,6 +2115,8 @@ export function ReturnsScreen(ctx: Context) {
 }
 export function ReportsScreen(ctx: Context) {
   const { s } = ctx;
+  const itemCodes = new Set(s.cartons.flatMap((c) => parse<Line[]>(c.lines).map((line) => line.sku)));
+  const products = ctx.work.kind === "all" ? s.products : s.products.filter((p) => itemCodes.has(p.sku));
   return (
     <>
       <Heading
@@ -2178,13 +2181,13 @@ export function ReportsScreen(ctx: Context) {
           <div>
             <h2>Activity history</h2>
             <p>
-              The latest 80 actions are shown here. Download this page to keep a copy.
+              Recent actions for the selected work. Up to 80 events are shown; download this page to keep a copy.
             </p>
           </div>
         </div>
         {s.audit.length ? (
           <div className="table-wrap">
-            <table>
+            <GroupedRecords ctx={ctx} rows={s.audit} type="audit">{(records) => (<table>
               <thead>
                 <tr>
                   <th>TIME (IST)</th>
@@ -2194,7 +2197,7 @@ export function ReportsScreen(ctx: Context) {
                 </tr>
               </thead>
               <tbody>
-                {s.audit.map((a) => (
+                {records.map((a) => (
                   <tr key={a.id}>
                     <td>{date(a.at)}</td>
                     <td>
@@ -2213,7 +2216,7 @@ export function ReportsScreen(ctx: Context) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table>)}</GroupedRecords>
           </div>
         ) : (
           <Empty
@@ -2227,6 +2230,7 @@ export function ReportsScreen(ctx: Context) {
         <p>
           Scanning records which cartons are loaded. It does not reduce stock in Tally. Accounts must check both records before invoices can be sent.
         </p>
+        <p>These are company balances. Selecting work filters the item list, not the Tally balance.</p>
         <table>
           <thead>
             <tr>
@@ -2236,7 +2240,7 @@ export function ReportsScreen(ctx: Context) {
             </tr>
           </thead>
           <tbody>
-            {s.products.map((p) => (
+            {products.map((p) => (
               <tr key={p.id}>
                 <td>
                   {p.sku} · {p.name}

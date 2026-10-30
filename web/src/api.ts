@@ -1,4 +1,5 @@
 import type { Row, State } from "./domain";
+import { workKey, type WorkScope } from "./work";
 let csrf = "";
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -43,7 +44,31 @@ export async function me(signal?: AbortSignal) {
   csrf = result.csrf;
   return result.user;
 }
-export const state = (signal?: AbortSignal): Promise<State> => api<State>("/state", { signal });
+export async function state(signal?: AbortSignal, scope: WorkScope = { kind: "all" }): Promise<State> {
+  const state = await api<State>("/state", { signal });
+  state.workLoadedKey = workKey(scope);
+  state.workComplete = true;
+  if (scope.kind === "all") return state;
+  const keys = ["cartons", "manifests", "trips", "shipments", "allocations", "billings", "jobs", "returns", "labels", "audit"] as const;
+  for (let page = 0; page < 10; page++) {
+    let detail: Row;
+    try {
+      detail = await api<Row>(`/work/${scope.kind}/${encodeURIComponent(scope.id)}?page=${page}`, { signal });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return { ...state, workMissing: true };
+      throw e;
+    }
+    for (const key of keys) {
+      const merged = new Map(state[key].map((row) => [row.id, row]));
+      for (const row of detail[key]) merged.set(row.id, row);
+      state[key] = [...merged.values()];
+    }
+    state.workCartonTotal = detail.cartonTotal;
+    state.workComplete = !detail.hasMore;
+    if (!detail.hasMore) break;
+  }
+  return state;
+}
 export type Envelope = { requestId: string; type: string; data: Row };
 export const envelope = (type: string, data: Row): Envelope => ({
   requestId: crypto.randomUUID(),

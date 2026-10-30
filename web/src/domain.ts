@@ -9,6 +9,10 @@ export type Line = {
 export type Group = { marking: string; count: number; lines: Line[] };
 export type Row = Record<string, any>;
 export type State = {
+  workLoadedKey?: string;
+  workComplete?: boolean;
+  workCartonTotal?: number;
+  workMissing?: boolean;
   company: Row;
   warehouses: Row[];
   products: Row[];

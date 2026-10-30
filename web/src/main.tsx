@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import {
   LayoutDashboard,
   Package,
@@ -49,11 +49,16 @@ import {
   ReturnsScreen,
   ReportsScreen,
 } from "./screens";
-import { LoadingScreen } from "./scanner";
+import { LoadingScreen, hasPendingScan } from "./scanner";
+import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
+import { WorkSelector, ShipmentOverview } from "./work-ui";
 import { brand, plainLabel } from "./brand";
 import "./style.css";
 export type Context = {
   s: State;
+  all: State;
+  work: WorkScope;
+  selectWork: (scope: WorkScope) => boolean;
   user: Row;
   sample: boolean;
   run: (type: string, data: Row) => Promise<any>;
@@ -145,6 +150,9 @@ export function App() {
     [s, setState] = useState<State | null>(null),
     [sample, setSample] = useState(false),
     [page, setPage] = useState(savedPage),
+    [work, setWork] = useState<WorkScope>(readWorkScope),
+    [workRetry, setWorkRetry] = useState(0),
+    [workError, setWorkError] = useState(""),
     [sessionStatus, setSessionStatus] = useState<"checking" | "ready" | "signedOut" | "unavailable">("checking"),
     [restoreAttempt, setRestoreAttempt] = useState(0),
     [error, setError] = useState(""),
@@ -152,10 +160,15 @@ export function App() {
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
     [lastSync, setLastSync] = useState<Date | null>(null);
+  const selectionKey = workKey(work);
+  const selectionRef = useRef(selectionKey);
+  selectionRef.current = selectionKey;
+  const view = useMemo(() => s ? projectWork(s, work) : null, [s, selectionKey]);
   const refresh = useCallback(async () => {
     if (sample) return;
     try {
-      const next = await client.state();
+      const next = await client.state(undefined, work);
+      if (selectionRef.current !== selectionKey) return;
       setState(next);
       setLastSync(new Date());
     } catch (e) {
@@ -166,14 +179,14 @@ export function App() {
       }
       throw e;
     }
-  }, [sample]);
+  }, [sample, selectionKey]);
   useEffect(() => {
     const controller = new AbortController();
     setSessionStatus("checking");
     async function restore() {
       try {
         const restoredUser = await client.me(controller.signal);
-        const next = await client.state(controller.signal);
+        const next = await client.state(controller.signal, work);
         if (controller.signal.aborted) return;
         setUser(restoredUser);
         setState(next);
@@ -194,17 +207,47 @@ export function App() {
     return () => controller.abort();
   }, [restoreAttempt]);
   useEffect(() => {
-    const restorePage = () => setPage(savedPage());
+    if (sample || sessionStatus !== "ready" || !user || s?.workLoadedKey === selectionKey) return;
+    const controller = new AbortController();
+    setWorkError("");
+    client.state(controller.signal, work).then((next) => {
+      if (controller.signal.aborted) return;
+      setState(next);
+      setLastSync(new Date());
+    }).catch((e) => {
+      if (controller.signal.aborted) return;
+      if (e instanceof client.ApiError && e.status === 401) setSessionStatus("signedOut");
+      else setWorkError("Could not load this work. Please try again.");
+    });
+    return () => controller.abort();
+  }, [selectionKey, workRetry, sample, sessionStatus, user, s?.workLoadedKey]);
+  useEffect(() => {
+    const restorePage = () => { setPage(savedPage()); setWork(readWorkScope()); };
     window.addEventListener("hashchange", restorePage);
-    return () => window.removeEventListener("hashchange", restorePage);
+    window.addEventListener("popstate", restorePage);
+    return () => { window.removeEventListener("hashchange", restorePage); window.removeEventListener("popstate", restorePage); };
   }, []);
+  function selectWork(next: WorkScope) {
+    if (workKey(next) === selectionKey) return true;
+    if (hasPendingScan()) {
+      setError("Check the last scan result on Load cartons before changing the selected work.");
+      return false;
+    }
+    const url = new URL(window.location.href);
+    if (next.kind === "all") url.searchParams.delete("work");
+    else url.searchParams.set("work", workKey(next));
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    setWork(next);
+    setWorkError("");
+    return true;
+  }
   function navigate(next: string) {
     if (!nav.some(([id]) => id === next)) return;
     window.history.replaceState(null, "", window.location.pathname + window.location.search + "#" + next);
     setPage(next);
   }
   useEffect(() => {
-    if (!user || sample) return;
+    if (!user || sample || sessionStatus !== "ready") return;
     const timer = setInterval(
       () =>
         refresh().catch(() =>
@@ -215,7 +258,7 @@ export function App() {
       15000,
     );
     return () => clearInterval(timer);
-  }, [user, sample, refresh]);
+  }, [user, sample, refresh, sessionStatus]);
   async function run(type: string, data: Row) {
     if (sample)
       throw Error(
@@ -246,7 +289,7 @@ export function App() {
     setSample(false);
     setSessionStatus("checking");
     try {
-      const next = await client.state();
+      const next = await client.state(undefined, work);
       setState(next);
       setLastSync(new Date());
       setSessionStatus("ready");
@@ -283,18 +326,18 @@ export function App() {
   if (sessionStatus !== "ready" || !user || !s) {
     return <SessionNotice unavailable={sessionStatus === "unavailable"} retry={() => setRestoreAttempt((n) => n + 1)} />;
   }
-  const ctx: Context = { s, user, sample, run, refresh, navigate };
+  const ctx: Context = { s: view!, all: s, work, selectWork, user, sample, run, refresh, navigate };
   const current = nav.find((x) => x[0] === page)!;
   const screens: Record<string, ReactNode> = {
     overview: <Overview {...ctx} />,
-    packing: <PackingScreen {...ctx} />,
-    cartons: <CartonScreen {...ctx} />,
-    trips: <TripsScreen {...ctx} />,
+    packing: <PackingScreen key={selectionKey} {...ctx} />,
+    cartons: <CartonScreen key={selectionKey} {...ctx} />,
+    trips: <TripsScreen key={selectionKey} {...ctx} />,
     loading: <LoadingScreen {...ctx} />,
-    billing: <BillingScreen {...ctx} />,
-    returns: <ReturnsScreen {...ctx} />,
+    billing: <BillingScreen key={selectionKey} {...ctx} />,
+    returns: <ReturnsScreen key={selectionKey} {...ctx} />,
     reports: <ReportsScreen {...ctx} />,
-    setup: <SetupScreen {...ctx} />,
+    setup: <SetupScreen {...ctx} s={s} />,
   };
   return (
     <div className="app">
@@ -314,9 +357,13 @@ export function App() {
           </div>
           <span className="workspace-dot" />
         </div>
-        <div className="nav-label">WORKSPACE</div>
         <nav>
-          {nav.map(([id, label, Icon]) => (
+          {[
+            ["Prepare", ["overview", "packing", "cartons"]],
+            ["Dispatch", ["trips", "loading", "billing"]],
+            ["History", ["returns", "reports"]],
+            ["Company", ["setup"]],
+          ].map(([label, ids]) => <div className="nav-group" key={String(label)}><div className="nav-label">{label}</div>{nav.filter(([id]) => (ids as string[]).includes(id)).map(([id, label, Icon]) => (
             <button
               key={id}
               className={page === id ? "active" : ""}
@@ -329,7 +376,7 @@ export function App() {
               <span>{label}</span>
               {page === id && <ChevronRight size={15} />}
             </button>
-          ))}
+          ))}</div>)}
         </nav>
         <div className="sidebar-bottom">
           <div className="connector-mini">
@@ -416,7 +463,12 @@ export function App() {
               </button>
             </div>
           )}
-          {screens[page]}
+          <WorkSelector ctx={ctx} companyWide={page === "setup"} />
+          {s.workMissing && <div className="notice amber">This work was not found. Choose another packing list, trip, or shipment, or select Show all work.</div>}
+          {page !== "setup" && !sample && s.workLoadedKey !== selectionKey ? <section className="panel panel-padding" role="status"><h2>{workError || "Opening selected work…"}</h2>{workError && <button className="secondary" onClick={() => setWorkRetry((n) => n + 1)}>Try again</button>}</section> : <>
+            {s.workComplete === false && work.kind !== "all" && <div className="notice amber">Showing up to 5,000 carton details out of {number(s.workCartonTotal ?? 0)}. Choose a smaller shipment for a complete view.</div>}
+            {screens[page]}
+          </>}
         </div>
         <footer className="app-footer">
           <span>{brand.name}</span>
@@ -601,6 +653,7 @@ function Overview(ctx: Context) {
           })}
         </div>
       </section>
+      <ShipmentOverview ctx={ctx} />
       <section className="panel">
         <div className="panel-heading"><div><h2>Recent packing lists</h2><p>Check the contents before printing labels.</p></div><button className="text-link" onClick={() => navigate("packing")}>View all <ArrowRight size={15} /></button></div>
         {s.manifests.length ? <div className="table-wrap"><table><thead><tr><th>PACKING LIST</th><th>CARTONS</th><th>STATUS</th><th /></tr></thead><tbody>{s.manifests.slice(0, 4).map((m) => <tr key={m.id}><td><strong>{m.name}</strong></td><td>{parse<Group[]>(m.groups).reduce((n, g) => n + g.count, 0)}</td><td><Badge tone={m.state === "Approved" ? "sage" : "amber"}>{m.state === "Draft" ? "Needs approval" : m.state}</Badge></td><td><button className="text-link" onClick={() => navigate("packing")} aria-label={"Open " + m.name}>Open <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div> : <Empty title="No packing lists yet" detail="Add the packed cartons to get started." />}

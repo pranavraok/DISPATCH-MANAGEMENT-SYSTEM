@@ -88,7 +88,7 @@ public sealed class Operations(DispatchDb db)
                 {
                     Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); RequireReason(d); var cartons = await Selected(d);
                     Check(cartons.All(c => c.State is "Available" or "Reserved"), "Retired, loaded and dispatched labels cannot be reissued through the packing screen.");
-                    var label = new LabelJob { CompanyId = company, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = $"K1|{company}|{c.Id}|{c.Revision}" })) }; db.Labels.Add(label);
+                    var label = new LabelJob { CompanyId = company, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = CartonCodes.Encode(c.Id, c.Revision, company) })) }; db.Labels.Add(label);
                     return new { id = label.Id, cartons, message = "Labels are ready. Print them and attach them to the matching cartons." };
                 }
             case "labelStatus":
@@ -233,6 +233,12 @@ public sealed class Operations(DispatchDb db)
     }
     async Task<Carton> ResolveQr(string qr)
     {
+        if (qr.Length <= 160 && CartonCodes.TryDecode(qr, out var compactId, out var compactRevision))
+        {
+            var carton = await Get<Carton>(compactId);
+            Check(carton.Revision == compactRevision, "Obsolete label revision. Scan the current attached label.");
+            return carton;
+        }
         Check(qr.Length <= 160, "QR payload too long."); var parts = qr.Split('|'); Check(parts.Length == 4 && parts[0] == "K1" && parts[1] == company && int.TryParse(parts[3], out _), "Invalid or wrong-company carton QR. Product barcodes cannot identify cartons."); var c = await Get<Carton>(parts[2]); Check(c.Revision.ToString() == parts[3], "Obsolete label revision. Scan the current attached label."); return c;
     }
     async Task ValidateGroups(PackedGroup[] groups)

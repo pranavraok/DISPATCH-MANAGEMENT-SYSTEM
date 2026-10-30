@@ -98,6 +98,68 @@ summary:focus-visible { outline: 3px solid #7eaa67; outline-offset: -3px; }
 .label-tasks button[aria-pressed="true"] { background: var(--forest); color: #fff; border-color: var(--forest); }
 .scan-next-action { padding: 16px 20px 0; }
 
+/* Cards keep each order's identity and progress visible at a glance. */
+:root { font-size: 15px; }
+.app input, .app select, .app textarea { font-size: 15px; }
+.app .primary, .app .secondary, .app .field > span, .app .text-link { font-size: 14px; }
+.app .page-heading p, .app .panel-heading p, .app .notice { font-size: 14px; }
+.app h2 { font-size: 18px; }
+.app h3 { font-size: 16px; }
+.app th { font-size: 12px; letter-spacing: .3px; }
+.app td, .app td strong { font-size: 14px; }
+.app td small, .app .badge, .app .toolbar > span { font-size: 13px; }
+.app code, .app .mono { font-size: 13px; }
+.app .search input { font-size: 14px; }
+.record-card-grid, .trip-card-grid, .shipment-card-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; align-items: stretch; }
+.record-card-grid { padding: 20px; }
+.trip-card-grid { margin-bottom: 24px; }
+.record-card-grid > .work-card, .trip-card-grid > .work-card { margin: 0; min-width: 0; border: 1px solid #dce5dc; border-top: 3px solid #a9c4ab; border-radius: 12px; overflow: hidden; background: #fff; }
+.record-card-grid > .work-card:last-child { border-bottom: 1px solid #dce5dc; }
+.record-card-grid > .work-card:hover, .trip-card-grid > .work-card:hover { border-color: #9db9a2; box-shadow: 0 4px 16px #183e3109; }
+.record-card-grid > .work-card[open], .trip-card-grid > .work-card:has(> .trip-foldout[open]) { grid-column: 1 / -1; }
+.work-card > summary, .trip-foldout > summary { display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 22px; min-height: 278px; background: #fff; list-style: none; }
+.work-card > summary::before, .trip-foldout > summary::before { display: none; }
+.work-card:not([open]) > summary, .trip-card > .trip-foldout:not([open]), .trip-card > .trip-foldout:not([open]) > summary { height: 100%; }
+.work-card[open] > summary, .trip-foldout[open] > summary { background: #f8faf6; border-bottom: 1px solid var(--line); min-height: 220px; }
+.work-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.work-card-kind { color: #6a7e6d; font-size: 12px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
+.record-card-grid .work-card-title, .trip-card-grid .work-card-title { display: block; color: #244b37; font-size: 18px; font-weight: 650; line-height: 1.4; letter-spacing: -.2px; overflow-wrap: anywhere; }
+.work-card-subtitle { font-size: 15px; line-height: 1.5; color: #526c59; overflow-wrap: anywhere; }
+.work-card-reference { color: #718273; font-size: 12px; line-height: 1.5; font-family: Consolas,monospace; overflow-wrap: anywhere; }
+.work-card > summary > .work-card-reference { flex: 0; min-width: 0; }
+.work-card-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; padding: 14px 0 4px; margin-top: auto; }
+.work-card-facts > div { display: flex; flex-direction: column; gap: 3px; }
+.work-card-facts span { font-size: 13px; color: #6a7c6b; }
+.record-card-grid .work-card-facts strong, .trip-card-grid .work-card-facts strong { font-size: 25px; font-weight: 650; line-height: 1.25; color: #2c5038; }
+.work-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 13px; margin-top: auto; border-top: 1px solid #e9eee6; color: #557a50; font-size: 13px; }
+.work-card-facts + .work-card-footer { margin-top: 8px; }
+.card-open-icon { flex-shrink: 0; }
+.work-card[open] > summary .card-open-icon, .trip-foldout[open] > summary .card-open-icon { transform: rotate(90deg); }
+.work-card .group-actions { padding: 16px 22px; flex-wrap: wrap; }
+.work-card .group-actions p { font-size: 14px; }
+.group-records { overflow-x: auto; }
+.shipment-card-grid { padding: 18px; }
+.shipment-card, .trip-card .shipment-card { display: flex; flex-direction: column; align-items: stretch; gap: 16px; min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.shipment-card > div:first-child > strong { font-size: 17px; color: var(--forest); }
+.shipment-card p { font-size: 14px; }
+.shipment-card small { font-size: 13px; margin-top: 5px; overflow-wrap: anywhere; }
+.shipment-card > .badge { align-self: flex-start; }
+.shipment-card > button:last-child { margin-top: auto; align-self: flex-start; }
+.shipment-card .button-row { margin-top: auto; }
+.shipment-card .shipment-options { padding-top: 4px; }
+.shipment-card .shipment-options > summary { font-size: 14px; }
+.modal .record-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 0; }
+.modal .work-card > summary { padding: 18px; }
+
+@media(max-width:1180px) { .record-card-grid, .trip-card-grid, .shipment-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:760px) {
+  .record-card-grid, .trip-card-grid, .shipment-card-grid, .modal .record-card-grid { grid-template-columns: minmax(0,1fr); gap: 14px; }
+  .record-card-grid, .shipment-card-grid { padding: 14px; }
+  .work-card > summary, .trip-foldout > summary { min-height: 250px; padding: 20px; align-items: stretch; }
+  .work-card .group-actions { padding: 14px 20px; }
+  .label-tasks button { font-size: 14px; }
+}
+
 @media (max-width: 1100px) {
   .work-selector select { max-width: 100%; }
   .shipment-row { grid-template-columns: minmax(0,1fr) auto auto; }
@@ -133,4 +195,5 @@ summary:focus-visible { outline: 3px solid #7eaa67; outline-offset: -3px; }
   .trip-title .badge { margin-top: 8px; }
   .toolbar { padding: 14px 16px; }
   .toolbar .search { min-width: 0; }
+  .record-card-grid .work-card > summary, .trip-card-grid .trip-foldout > summary { align-items: stretch; }
 }

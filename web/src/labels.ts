@@ -1,4 +1,5 @@
 import { parse, type Row, type Line } from "./domain";
+import { cartonQr, shortReference } from "./codes";
 export async function labelPdf(cartons: Row[], company: string, test = false) {
   const [{ default: QRCode }, { jsPDF }] = await Promise.all([
     import("qrcode"),
@@ -16,17 +17,18 @@ export async function labelPdf(cartons: Row[], company: string, test = false) {
       c = selected[i];
     pdf.setDrawColor(190);
     pdf.roundedRect(x, y, 90, 50, 1, 1);
+    const payload = cartonQr(c as { id: string; companyId: string; revision: number });
     const qr = await QRCode.toDataURL(
-      `K1|${c.companyId}|${c.id}|${c.revision}`,
+      payload,
       { errorCorrectionLevel: "M", margin: 4, width: 400 },
     );
     pdf.addImage(qr, "PNG", x + 2, y + 3, 34, 34);
     pdf.setTextColor(25, 45, 38);
-    pdf.setFontSize(7);
-    pdf.text("ELECTRO GROUP OF INDUSTRIES", x + 38, y + 7);
     pdf.setFontSize(8);
-    pdf.text(c.id, x + 38, y + 13);
-    pdf.setFontSize(7);
+    pdf.text("ELECTRO GROUP OF INDUSTRIES", x + 38, y + 7);
+    pdf.setFontSize(10);
+    pdf.text(payload.startsWith("Q") ? payload : shortReference(c.id), x + 38, y + 13);
+    pdf.setFontSize(8);
     pdf.text(`Revision ${c.revision} | Group ${c.marking}`, x + 38, y + 18);
     const lines = parse<Line[]>(c.lines);
     const text = lines
@@ -75,7 +77,7 @@ export async function packingPdf(
   pdf.text(
     [
       "Packing list - NOT A TAX INVOICE",
-      shipment.id,
+      shortReference(shipment.id),
       customer,
       shipment.destination,
     ],
@@ -91,7 +93,7 @@ export async function packingPdf(
     const lines = parse<Line[]>(c.lines)
       .map((l) => `${l.sku}: ${l.quantity} ${l.unit}`)
       .join(", ");
-    const wrapped = pdf.splitTextToSize(c.id + " | " + lines, 180);
+    const wrapped = pdf.splitTextToSize(shortReference(c.id) + " | " + lines, 180);
     pdf.text(wrapped, 15, y);
     y += wrapped.length * 5 + 3;
   }

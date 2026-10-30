@@ -123,8 +123,8 @@ describe("shipment grouping across sidebar pages", () => {
     if (!tripDetails.open) fireEvent.click(tripDetails.querySelector("summary")!);
     fireEvent.click(within(trip).getByRole("button", { name: "Add customer & cartons" }));
     const dialog = screen.getByRole("dialog", { name: "Choose cartons for a customer" });
-    expect(within(dialog).getByText(/^Packing: Packing Alpha/)).toBeTruthy();
-    expect(within(dialog).getByText(/^Packing: Packing Beta/)).toBeTruthy();
+    expect(within(dialog).getByText("Packing Alpha", { exact: true })).toBeTruthy();
+    expect(within(dialog).getByText("Packing Beta", { exact: true })).toBeTruthy();
     expect(within(dialog).getByText("CT-FREE")).toBeTruthy();
     expect(within(dialog).getByText("CT-STOCK")).toBeTruthy();
     expect(within(dialog).queryByText("CT-ONE")).toBeNull();

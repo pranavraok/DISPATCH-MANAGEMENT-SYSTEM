@@ -11,6 +11,8 @@ COPY global.json NuGet.Config ./
 COPY src/Dispatch.Api/Dispatch.Api.csproj src/Dispatch.Api/
 RUN dotnet restore src/Dispatch.Api/Dispatch.Api.csproj
 COPY src/Dispatch.Api/ src/Dispatch.Api/
+COPY tests/Dispatch.CodecChecks/ tests/Dispatch.CodecChecks/
+RUN dotnet run --project tests/Dispatch.CodecChecks/Dispatch.CodecChecks.csproj -c Release
 RUN dotnet publish src/Dispatch.Api/Dispatch.Api.csproj -c Release -o /app --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.14

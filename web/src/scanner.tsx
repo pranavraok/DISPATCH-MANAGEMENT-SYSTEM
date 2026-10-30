@@ -12,6 +12,7 @@ import { date, totals, type Row } from "./domain";
 import * as api from "./api";
 import { plainLabel } from "./brand";
 import { ShipmentChoices } from "./work-ui";
+import { shortReference } from "./codes";
 type Result = { outcome: string; message: string; id?: string };
 type Pending = { envelope: api.Envelope; shipmentId: string; at: string };
 const pendingKey = "electro-group-uncertain-scan-v1";
@@ -316,7 +317,7 @@ export function DispatchScanScreen(ctx: Context) {
               {result?.message ??
                 (shipment?.loadApproved ? "This load is approved. Continue to Billing." : "Select your customer shipment and start scanning.")}
             </p>
-            {result?.id && <code>{result.id}</code>}
+            {result?.id && <code title={result.id}>{shortReference(result.id)}</code>}
           </div>
           <form
             onSubmit={(e) => {
@@ -468,7 +469,7 @@ export function DispatchScanScreen(ctx: Context) {
                     </Badge>
                   </td>
                   <td>
-                    <strong>{e.id ?? e.message}</strong>
+                    <strong title={e.id}>{e.id ? shortReference(e.id) : e.message}</strong>
                     <small>{e.message}</small>
                   </td>
                   <td>{date(e.at)}</td>

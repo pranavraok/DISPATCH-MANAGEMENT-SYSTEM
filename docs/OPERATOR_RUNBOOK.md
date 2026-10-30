@@ -60,6 +60,10 @@ Reprints retain the same ID/revision. Record a reason and print status honestly.
 
 ## 4. Scanner workstation
 
+Work lists appear as separate cards, three across on a wide desktop and stacked on phones. Each card shows the name, status and relevant totals. Open a card to see its full details and actions. Short display references preserve the full stored identity; the full carton reference remains available in carton details.
+
+Newly printed standard carton labels contain a shorter QR code, normally 17 characters including its revision. Scan the QR as usual; no special scanner setting is needed. Previously printed labels still work and do not need reprinting solely for this change. The label PDF and print-job record use the same payload.
+
 Use the actual D-5015 manual and supplied receiver/Bluetooth mode. Verify one scan in a plain text field. Configure supported keyboard/HID LIVE transmission and Enter termination. Do not use its offline/inventory storage mode for dispatch. Do not invent programming-barcode settings from another scanner model.
 
 Open Labels > Scan for dispatch. Use local PC speakers. Select a customer shipment, enter the fixed workstation name, and press Start scanning & turn on sound. Test the speaker. Keep the dedicated scan field focused. Scan each physical carton once as it is placed on the selected vehicle, then wait for the server-confirmed Loaded result before the next carton. There is no separate Loading screen or prior verification scan. Green + accepted sound follows a committed acceptance. Amber Duplicate changes no totals. Red Rejected requires correction. Pending means no known acceptance; set the carton aside and reconcile its original request ID. Retry saved scan resends that same request without scanning the box again.

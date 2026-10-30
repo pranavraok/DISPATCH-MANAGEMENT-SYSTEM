@@ -1,4 +1,5 @@
 import { parse, type Row, type State } from "./domain";
+import { shortReference } from "./codes";
 
 export type WorkScope = { kind: "all" } | { kind: "packing" | "trip" | "shipment"; id: string };
 export type WorkGroup = { key: string; title: string; detail: string; scope: WorkScope; rows: Row[] };
@@ -17,7 +18,7 @@ export function shipmentName(s: State, id: string) {
   if (!sh) return "Shipment " + id;
   const customer = s.customers.find((x) => x.id === sh.customerId)?.name ?? sh.customerId;
   const trip = s.trips.find((x) => x.id === sh.tripId);
-  return `${customer} · ${trip?.vehicle ?? sh.tripId} · ${sh.destination || "Destination not set"} · ${sh.id}`;
+  return `${customer} · ${trip?.vehicle ?? shortReference(sh.tripId)} · ${sh.destination || "Destination not set"} · ${shortReference(sh.id)}`;
 }
 export function workTitle(s: State, scope: WorkScope) {
   if (scope.kind === "all") return "All work";

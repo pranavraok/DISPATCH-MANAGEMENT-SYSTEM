@@ -32,7 +32,8 @@ import {
   parseQr,
 } from "./domain";
 import { labelPdf, packingPdf, download } from "./labels";
-import { GroupedRecords, ShipmentChoices } from "./work-ui";
+import { GroupedRecords, ShipmentChoices, WorkCardSummary } from "./work-ui";
+import { cartonQr, shortReference } from "./codes";
 import { shipmentName } from "./work";
 import { DispatchScanScreen, hasPendingScan } from "./scanner";
 export function Heading({
@@ -121,7 +122,7 @@ export function PackingScreen(ctx: Context) {
                       <td>
                         <strong>{m.name}</strong>
                         <small>
-                          {m.id} · Version {m.version}
+                          {shortReference(m.id)} · Version {m.version}
                         </small>
                       </td>
                       <td>
@@ -647,7 +648,7 @@ function PrintLabelsScreen(ctx: Context) {
     [error, setError] = useState(""),
     [history, setHistory] = useState<Row | null>(null);
   const rows = s.cartons.filter((c) =>
-    (c.id + " " + c.marking + " " + c.state)
+    (c.id + " " + shortReference(c.id) + " " + cartonQr(c as { id: string; companyId: string; revision: number }) + " " + c.marking + " " + c.state)
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
@@ -781,7 +782,7 @@ function PrintLabelsScreen(ctx: Context) {
                       />
                     </td>
                     <td>
-                      <strong className="mono">{c.id}</strong>
+                        <strong className="mono" title={c.id}>{shortReference(c.id)}</strong>
                       <small>
                         Group {c.marking} · Label version {c.revision}
                       </small>
@@ -921,7 +922,8 @@ function PrintLabelsScreen(ctx: Context) {
           title="Carton details"
           close={() => setHistory(null)}
         >
-          <h3>{history.id}</h3>
+          <h3>{shortReference(history.id)}</h3>
+          <details className="inline-help"><summary>Full carton reference</summary><code>{history.id}</code></details>
           <p>Packing list: {ctx.all.manifests.find((m) => m.id === history.manifestId)?.name ?? history.manifestId}</p>
           <dl className="carton-facts">
             <div><dt>Group</dt><dd>{history.marking}</dd></div>
@@ -992,26 +994,11 @@ export function TripsScreen(ctx: Context) {
           />
         </section>
       ) : (
-        s.trips.map((t) => (
-          <section className="panel trip-card" key={t.id}>
+        <div className="trip-card-grid">{s.trips.map((t) => (
+          <section className="panel trip-card work-card" key={t.id}>
             <details className="trip-foldout" name="vehicle-trips" open={s.trips.length === 1}>
             <summary>
-              <div className="trip-title">
-                <span className="trip-icon">
-                  <Truck size={25} />
-                </span>
-                <div>
-                  <h2>{t.vehicle}</h2>
-                  <p>
-                    {t.driver} · {t.id}
-                    {t.transporter && <small>{t.transporter}</small>}
-                  </p>
-                </div>
-                <Badge tone={t.state === "Open" ? "sage" : "neutral"}>
-                  {t.state}
-                </Badge>
-              </div>
-              <span className="record-count">{s.shipments.filter((sh) => sh.tripId === t.id).length} {s.shipments.filter((sh) => sh.tripId === t.id).length === 1 ? "shipment" : "shipments"}</span>
+              <WorkCardSummary state={ctx.all} scope={{ kind: "trip", id: t.id }} heading />
             </summary>
               <div className="trip-actions button-row">
                 <button
@@ -1048,7 +1035,7 @@ export function TripsScreen(ctx: Context) {
                   Record departure
                 </button>
               </div>
-            {s.shipments
+            <div className="shipment-card-grid">{s.shipments
               .filter((x) => x.tripId === t.id)
               .map((sh) => {
                 const a = s.allocations.filter(
@@ -1056,13 +1043,13 @@ export function TripsScreen(ctx: Context) {
                   ),
                   loaded = a.filter((x) => x.state === "Loaded").length;
                 return (
-                  <div className="shipment-row" key={sh.id}>
+                  <div className="shipment-row shipment-card" key={sh.id}>
                     <div>
                       <h3>
                         {s.customers.find((c) => c.id === sh.customerId)?.name}
                       </h3>
                       <p>{sh.destination}</p>
-                      <small>{sh.id}</small>
+                      <small title={sh.id}>{shortReference(sh.id)}</small>
                     </div>
                     <div>
                       <strong>
@@ -1174,7 +1161,7 @@ export function TripsScreen(ctx: Context) {
                     </details>
                   </div>
                 );
-              })}
+              })}</div>
             {!s.shipments.some((x) => x.tripId === t.id) && (
               <p className="panel-padding muted">
                 Add the first customer shipment to this vehicle.
@@ -1182,7 +1169,7 @@ export function TripsScreen(ctx: Context) {
             )}
             </details>
           </section>
-        ))
+        ))}</div>
       )}
       {creating && (
         <Modal title="Create vehicle trip" close={() => setCreating(false)}>

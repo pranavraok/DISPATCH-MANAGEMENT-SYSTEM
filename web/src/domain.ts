@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import { decodeCompactQr } from "./codes";
 export type Line = {
   sku: string;
   quantity: string | number;
@@ -53,6 +54,8 @@ export function totals(cartons: Row[]) {
 }
 export function parseQr(qr: string, company: string) {
   if (qr.length > 160) throw Error("QR is too long.");
+  const compact = decodeCompactQr(qr.trim());
+  if (compact) return compact;
   const p = qr.trim().split("|");
   if (
     p.length !== 4 ||

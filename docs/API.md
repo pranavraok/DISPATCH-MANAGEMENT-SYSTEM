@@ -10,6 +10,8 @@ POST /commands:
 
 Keep the same requestId **and exact body** after an uncertain response. GET /requests/{id} returns only the current actor's saved outcome. A 404 is still ambiguous while an earlier request could be in flight. Retrying the exact envelope is safe for this transactional cloud API. It is not a guarantee of exactly-once execution in Tally.
 
+New standard carton labels encode `Q<14-character base64url identity>.<uppercase base36 revision>`. For example, `CT-0123456789ABCDEF0123`, revision 1, becomes `QASNFZ4mrze8BIw.1` (17 characters). All 80 identity bits are preserved. Decoding requires canonical encoding and a positive Int32 revision. Resolution still loads the carton in the authenticated company scope and rejects obsolete revisions. Existing `K1|company|id|revision` labels remain valid; nonstandard fixture IDs retain that format. No stored IDs or database schema change.
+
 | Type | Required data | Role |
 |---|---|---|
 | saveManifest / importManifest | name, warehouseId, optional customerId, notes, groups; id/version when editing | PackingClerk / PackingSupervisor |

@@ -58,6 +58,15 @@ export function LoadingScreen(ctx: Context) {
     );
     if (session) setSessionId(session.id);
   }, [s.loadingSessions, shipmentId, station]);
+  useEffect(() => {
+    const warnPausedInput = (event: KeyboardEvent) => {
+      if (started && (pending || !focused) && (event.key === 'Enter' || event.key.length === 1) && !event.ctrlKey && !event.metaKey) {
+        setError('Input arrived while loading was paused or scan focus was lost. This input was not accepted. Keep the carton aside and scan again only when the field is ready.');
+      }
+    };
+    window.addEventListener('keydown', warnPausedInput, true);
+    return () => window.removeEventListener('keydown', warnPausedInput, true);
+  }, [started, pending, focused]);
   function sound(kind: string) {
     const a = audio.current;
     if (!a || a.state !== "running") return;
@@ -160,7 +169,7 @@ export function LoadingScreen(ctx: Context) {
         [{ ...r, at: new Date().toISOString() }, ...prev].slice(0, 12),
       );
       sound(r.outcome);
-      await refresh();
+      await refresh().catch(() => setError("The server confirmed this result. Totals could not refresh; reload saved state before continuing."));
     } catch (e) {
       setResult({
         outcome: "Pending",
@@ -185,7 +194,7 @@ export function LoadingScreen(ctx: Context) {
         [{ ...r, at: new Date().toISOString() }, ...prev].slice(0, 12),
       );
       sound(r.outcome);
-      await refresh();
+      await refresh().catch(() => setError("The server confirmed this result. Totals could not refresh; reload saved state before continuing."));
     } catch (e) {
       setError(
         (e as Error).message +
@@ -201,7 +210,7 @@ export function LoadingScreen(ctx: Context) {
       store(null);
       setResult(r);
       sound(r.outcome);
-      await refresh();
+      await refresh().catch(() => setError("The server confirmed this result. Totals could not refresh; reload saved state before continuing."));
     } catch (e) {
       setError((e as Error).message);
     } finally {

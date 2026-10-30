@@ -14,7 +14,7 @@ Build date: 30 October 2026. This record distinguishes executed software checks 
 | Browser checks | PASS | Deployed login/sample dashboard, 390 px phone layout and disabled sample loading controls inspected. Local MD sign-in reached actual saved PostgreSQL state; write controls remained disabled |
 | PostgreSQL backup/restore | PASS | Official pg_dump/pg_restore 18.4; all 23 table counts and posting job hashes matched a new disposable UTF-8 restore target. Live source was not overwritten |
 | Windows self-contained packaging | PASS | win-x64 Release publication succeeded. Actual separate-PC installation remains pending |
-| Actual application A4 PDF function | PASS generation | The same exported application function generated a fictional mixed-carton test page; rendering/QR decode result recorded separately below |
+| Actual application A4 PDF function | PASS generation, render and decode | A4 dimensions, no-clipping visual inspection, mixed text and independent QR round trip all passed; actual paper/scanner still pending |
 | Vercel app + .NET API | DEPLOYED | Root returns 200. /api/health returns 503 with database unavailable, as expected while credentials remain blocked. Both are actual hosted endpoints |
 | GitHub source push | PASS | Native connected GitHub write was denied; local Git credentials successfully pushed main to the exact user-provided repository |
 | Cloud DB provisioning | Created, unconnected | Free temporary database expires 2 November 2026 at 13:10 UTC unless claimed. No claim of permanent production storage |

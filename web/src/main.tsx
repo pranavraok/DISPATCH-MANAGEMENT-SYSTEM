@@ -185,7 +185,9 @@ function App() {
     const request = client.envelope(type, data);
     try {
       const result = await client.send(request);
-      await refresh();
+      await refresh().catch(() =>
+        setError("The change was saved. Refresh is unavailable; reload saved state before continuing."),
+      );
       setToast(result.message ?? "Saved.");
       setTimeout(() => setToast(""), 6000);
       return result;

@@ -1,5 +1,4 @@
-import React, { useEffect, useState, useCallback, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import {
   LayoutDashboard,
   Package,
@@ -137,11 +136,17 @@ const nav = [
   ["reports", "Reports", Activity],
   ["setup", "Settings", Settings],
 ] as const;
-function App() {
+function savedPage() {
+  const page = window.location.hash.slice(1);
+  return nav.some(([id]) => id === page) ? page : "overview";
+}
+export function App() {
   const [user, setUser] = useState<Row | null>(null),
     [s, setState] = useState<State | null>(null),
     [sample, setSample] = useState(false),
-    [page, setPage] = useState("overview"),
+    [page, setPage] = useState(savedPage),
+    [sessionStatus, setSessionStatus] = useState<"checking" | "ready" | "signedOut" | "unavailable">("checking"),
+    [restoreAttempt, setRestoreAttempt] = useState(0),
     [error, setError] = useState(""),
     [toast, setToast] = useState(""),
     [busy, setBusy] = useState(false),
@@ -149,20 +154,55 @@ function App() {
     [lastSync, setLastSync] = useState<Date | null>(null);
   const refresh = useCallback(async () => {
     if (sample) return;
-    const next = await client.state();
-    setState(next);
-    setLastSync(new Date());
+    try {
+      const next = await client.state();
+      setState(next);
+      setLastSync(new Date());
+    } catch (e) {
+      if (e instanceof client.ApiError && e.status === 401) {
+        setUser(null);
+        setState(null);
+        setSessionStatus("signedOut");
+      }
+      throw e;
+    }
   }, [sample]);
   useEffect(() => {
-    client
-      .me()
-      .then((u) => {
-        setUser(u);
-        return client.state();
-      })
-      .then(setState)
-      .catch(() => {});
+    const controller = new AbortController();
+    setSessionStatus("checking");
+    async function restore() {
+      try {
+        const restoredUser = await client.me(controller.signal);
+        const next = await client.state(controller.signal);
+        if (controller.signal.aborted) return;
+        setUser(restoredUser);
+        setState(next);
+        setLastSync(new Date());
+        setSessionStatus("ready");
+      } catch (e) {
+        if (controller.signal.aborted) return;
+        if (e instanceof client.ApiError && e.status === 401) {
+          setUser(null);
+          setState(null);
+          setSessionStatus("signedOut");
+        } else {
+          setSessionStatus("unavailable");
+        }
+      }
+    }
+    void restore();
+    return () => controller.abort();
+  }, [restoreAttempt]);
+  useEffect(() => {
+    const restorePage = () => setPage(savedPage());
+    window.addEventListener("hashchange", restorePage);
+    return () => window.removeEventListener("hashchange", restorePage);
   }, []);
+  function navigate(next: string) {
+    if (!nav.some(([id]) => id === next)) return;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search + "#" + next);
+    setPage(next);
+  }
   useEffect(() => {
     if (!user || sample) return;
     const timer = setInterval(
@@ -204,9 +244,30 @@ function App() {
     const u = await client.login(email, password);
     setUser(u);
     setSample(false);
-    const next = await client.state();
-    setState(next);
-    setLastSync(new Date());
+    setSessionStatus("checking");
+    try {
+      const next = await client.state();
+      setState(next);
+      setLastSync(new Date());
+      setSessionStatus("ready");
+    } catch (e) {
+      setSessionStatus(e instanceof client.ApiError && e.status === 401 ? "signedOut" : "unavailable");
+    }
+  }
+  async function logout() {
+    setBusy(true);
+    try {
+      if (!sample) await client.api("/auth/logout", { method: "POST" });
+      setUser(null);
+      setState(null);
+      setSample(false);
+      setSessionStatus("signedOut");
+      setError("");
+    } catch {
+      setError("Could not sign out. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
   function preview() {
     setSample(true);
@@ -216,9 +277,13 @@ function App() {
       email: "Read-only workspace",
     });
     setState(sampleState());
+    setSessionStatus("ready");
   }
-  if (!user || !s) return <Login onLogin={onLogin} preview={preview} />;
-  const ctx: Context = { s, user, sample, run, refresh, navigate: setPage };
+  if (sessionStatus === "signedOut") return <Login onLogin={onLogin} preview={preview} />;
+  if (sessionStatus !== "ready" || !user || !s) {
+    return <SessionNotice unavailable={sessionStatus === "unavailable"} retry={() => setRestoreAttempt((n) => n + 1)} />;
+  }
+  const ctx: Context = { s, user, sample, run, refresh, navigate };
   const current = nav.find((x) => x[0] === page)!;
   const screens: Record<string, ReactNode> = {
     overview: <Overview {...ctx} />,
@@ -256,7 +321,7 @@ function App() {
               key={id}
               className={page === id ? "active" : ""}
               onClick={() => {
-                setPage(id);
+                navigate(id);
                 setMobile(false);
               }}
             >
@@ -281,12 +346,8 @@ function App() {
           </div>
           <button
             className="profile"
-            onClick={() => {
-              client.api("/auth/logout", { method: "POST" }).catch(() => {});
-              setUser(null);
-              setState(null);
-              setSample(false);
-            }}
+            onClick={() => void logout()}
+            disabled={busy}
           >
             <span className="avatar">{user.name[0]}</span>
             <div>
@@ -339,6 +400,7 @@ function App() {
                   setUser(null);
                   setState(null);
                   setSample(false);
+                  setSessionStatus("signedOut");
                 }}
               >
                 Sign in <ArrowRight size={14} />
@@ -373,6 +435,19 @@ function App() {
         </div>
       )}
       {busy && <div className="saving">Saving…</div>}
+    </div>
+  );
+}
+function SessionNotice({ unavailable, retry }: { unavailable: boolean; retry: () => void }) {
+  return (
+    <div className="session-screen">
+      <section className="panel session-panel" aria-busy={!unavailable}>
+        <div className="session-brand">{brand.name}</div>
+        {unavailable ? <WifiOff size={30} /> : <RefreshCw size={30} className="session-spinner" />}
+        <h1>{unavailable ? "Could not open your workspace" : "Opening your workspace…"}</h1>
+        <p role="status">{unavailable ? "Please check your connection and try again. Your saved sign-in will be checked again; you do not need to enter your password unless the session has ended." : "Checking your saved sign-in. Please wait."}</p>
+        {unavailable && <button className="primary" onClick={retry}>Try again <RefreshCw size={16} /></button>}
+      </section>
     </div>
   );
 }
@@ -560,8 +635,3 @@ function Metric({
     </section>
   );
 }
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);

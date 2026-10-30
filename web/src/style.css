@@ -1892,3 +1892,13 @@ input:focus-visible,button:focus-visible,a:focus-visible,select:focus-visible { 
 .carton-facts > div { padding: 10px; background: #f4f7f1; border-radius: 5px; }
 .carton-facts dt { color: var(--muted); font-size: 12px; }
 .carton-facts dd { margin: 5px 0 0; font-weight: 600; }
+
+.session-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.session-panel { width: 100%; max-width: 520px; padding: 36px; text-align: center; }
+.session-brand { color: var(--forest); font-weight: 700; margin-bottom: 28px; }
+.session-panel > svg { color: var(--forest); margin-bottom: 20px; }
+.session-panel h1 { font-size: 24px; margin-bottom: 12px; }
+.session-panel .primary { margin-top: 24px; }
+.session-spinner { animation: session-spin 1.5s linear infinite; }
+@keyframes session-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .session-spinner { animation: none; } }

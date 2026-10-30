@@ -49,19 +49,19 @@ public class DispatchDb(DbContextOptions<DispatchDb> options) : DbContext(option
         b.Entity<Billing>().HasIndex(x => new { x.CompanyId, x.ShipmentId, x.Revision }).IsUnique();
         b.Entity<PostingJob>().HasIndex(x => x.BillingId).IsUnique(); b.Entity<LoadingSession>().HasIndex(x => new { x.CompanyId, x.Station }).IsUnique().HasFilter("\"Active\" = TRUE");
         b.Entity<Carton>().HasIndex(x => new { x.CompanyId, x.WarehouseId, x.State }); b.Entity<AuditEvent>().HasIndex(x => new { x.CompanyId, x.At }); b.Entity<PostingJob>().HasIndex(x => new { x.CompanyId, x.State });
-        ScopedFk<Session, User>(b, "UserId"); ScopedFk<Carton, Manifest>(b,"ManifestId"); ScopedFk<Carton, Warehouse>(b,"WarehouseId"); ScopedFk<Manifest, Warehouse>(b,"WarehouseId");
-        ScopedFk<Shipment, Trip>(b,"TripId"); ScopedFk<Shipment, Customer>(b,"CustomerId"); ScopedFk<Shipment, Warehouse>(b,"WarehouseId"); ScopedFk<Allocation, Carton>(b,"CartonId"); ScopedFk<Allocation, Shipment>(b,"ShipmentId");
-        ScopedFk<LoadingSession, Shipment>(b,"ShipmentId"); ScopedFk<LoadingSession, Trip>(b,"TripId"); ScopedFk<Billing, Shipment>(b,"ShipmentId"); ScopedFk<PostingJob, Billing>(b,"BillingId"); ScopedFk<ReturnRecord, Carton>(b,"CartonId");
+        ScopedFk<Session, User>(b, "UserId"); ScopedFk<Carton, Manifest>(b, "ManifestId"); ScopedFk<Carton, Warehouse>(b, "WarehouseId"); ScopedFk<Manifest, Warehouse>(b, "WarehouseId");
+        ScopedFk<Shipment, Trip>(b, "TripId"); ScopedFk<Shipment, Customer>(b, "CustomerId"); ScopedFk<Shipment, Warehouse>(b, "WarehouseId"); ScopedFk<Allocation, Carton>(b, "CartonId"); ScopedFk<Allocation, Shipment>(b, "ShipmentId");
+        ScopedFk<LoadingSession, Shipment>(b, "ShipmentId"); ScopedFk<LoadingSession, Trip>(b, "TripId"); ScopedFk<Billing, Shipment>(b, "ShipmentId"); ScopedFk<PostingJob, Billing>(b, "BillingId"); ScopedFk<ReturnRecord, Carton>(b, "CartonId");
         b.Entity<Allocation>().ToTable(t => t.HasCheckConstraint("allocation_state", "\"State\" IN ('Reserved','Loaded','Departed','Released')"));
         b.Entity<Carton>().ToTable(t => t.HasCheckConstraint("carton_revision", "\"Revision\" > 0"));
     }
-    static void ScopedFk<T,D>(ModelBuilder b, string field) where T: Scoped where D: Scoped => b.Entity<T>().HasOne<D>().WithMany().HasForeignKey("CompanyId",field).HasPrincipalKey("CompanyId","Id").OnDelete(DeleteBehavior.Restrict);
+    static void ScopedFk<T, D>(ModelBuilder b, string field) where T : Scoped where D : Scoped => b.Entity<T>().HasOne<D>().WithMany().HasForeignKey("CompanyId", field).HasPrincipalKey("CompanyId", "Id").OnDelete(DeleteBehavior.Restrict);
 }
 public static class Json
 {
     public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString };
-    public static string Write<T>(T value) => JsonSerializer.Serialize(value,Options);
-    public static T Read<T>(string value) => JsonSerializer.Deserialize<T>(value,Options)!;
+    public static string Write<T>(T value) => JsonSerializer.Serialize(value, Options);
+    public static T Read<T>(string value) => JsonSerializer.Deserialize<T>(value, Options)!;
     public static T Read<T>(JsonElement value) => value.Deserialize<T>(Options)!;
 }
 public class RuleException(string message, int status = 400) : Exception(message) { public int Status { get; } = status; }

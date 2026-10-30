@@ -2,14 +2,17 @@
 
 The complete specification is in MASTER_SPECIFICATION.txt. No Tally, scanner or printer access has been verified.
 
-- [ ] 1. PostgreSQL migration, secure sessions, role and company checks, audit/outbox.
-- [ ] 2. Packed drafts, approved unique cartons, strict import preview and idempotent commit.
-- [ ] 3. Genuine A4 QR PDF labels, attachment and content verification, revisions and holds.
-- [ ] 4. Partial allocations, multi-customer trips, atomic scan acceptance and unloading.
-- [ ] 5. Load approvals, decimal billing revisions and blocked unresolved mappings.
-- [ ] 6. Separate Windows connector, scoped pairing, diagnostics, safe journal and reconciliation boundaries.
-- [ ] 7. Documents, departure gates, returns/quarantine and reports.
-- [ ] 8. Runnable container setup, Windows runbooks, automated tests, deployment.
+- [x] 1. PostgreSQL migration, secure sessions, role and company checks, audit/outbox.
+- [x] 2. Packed drafts, approved unique cartons, strict import preview and request-idempotent commit. Automatic autosave and whole-file duplicate fingerprints remain pending.
+- [x] 3. Genuine A4 QR PDF labels, attachment and content verification, revisions and holds. Actual physical printer/scanner checks pending.
+- [x] 4. Partial allocations, multi-customer trips, atomic scan acceptance and unloading.
+- [x] 5. Load approvals, decimal billing revisions and blocked unresolved mappings.
+- [x] 6a. Separate Windows connector, scoped pairing, diagnostics and safe journal guard fixtures.
+- [ ] 6b. Installation-specific posting/readback/reconciliation adapter, stock preflight and full lease/attempt pipeline.
+- [x] 7a. Packing lists, confirmed-invoice/document departure gates, returns/quarantine and audit reports.
+- [ ] 7b. Genuine invoice output, accountant-approved credit/restock and return redispatch.
+- [x] 8a. Runnable container setup, Windows runbooks, automated tests, Vercel app/API deployment and GitHub source push.
+- [ ] 8b. Vercel database credentials: automatic approval review requires explicit approval to transmit the new DB connection string and bootstrap passwords. Actual hardware/Tally and sustained-scale acceptance are also pending.
 
 ## Confirmed boundaries
 

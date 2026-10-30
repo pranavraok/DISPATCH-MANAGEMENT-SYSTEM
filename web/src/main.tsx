@@ -384,7 +384,20 @@ function Login({
   const [email, setEmail] = useState("admin@kriyantha.test"),
     [password, setPassword] = useState(""),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [connectionNote, setConnectionNote] = useState("");
+  useEffect(() => {
+    fetch("/api/health")
+      .then((response) => {
+        if (!response.ok)
+          setConnectionNote(
+            "The application is deployed. Its cloud database connection is awaiting setup approval. Use the read-only sample to review the workspace.",
+          );
+      })
+      .catch(() =>
+        setConnectionNote("Connection unavailable. Retry when the service is reachable."),
+      );
+  }, []);
   return (
     <div className="login">
       <section className="login-story">
@@ -429,6 +442,7 @@ function Login({
       <section className="login-form">
         <div className="eyebrow">DISPATCH CONTROL</div>
         <h2>Welcome back.</h2>
+        {connectionNote && <div className="notice amber">{connectionNote}</div>}
         <p>Sign in to your warehouse workspace.</p>
         <form
           onSubmit={async (e) => {

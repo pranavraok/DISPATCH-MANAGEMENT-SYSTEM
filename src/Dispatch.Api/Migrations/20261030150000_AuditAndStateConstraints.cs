@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 namespace Dispatch.Migrations;
+
 [DbContext(typeof(DispatchDb))]
 [Migration("20261030150000_AuditAndStateConstraints")]
 public class AuditAndStateConstraints : Migration
 {
-    protected override void Up(MigrationBuilder migrationBuilder)=>migrationBuilder.Sql("""
+    protected override void Up(MigrationBuilder migrationBuilder) => migrationBuilder.Sql("""
         CREATE FUNCTION reject_dispatch_audit_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN RAISE EXCEPTION 'Operational audit is append-only'; END; $$;
         CREATE TRIGGER audit_append_only BEFORE UPDATE OR DELETE ON "Audit" FOR EACH ROW EXECUTE FUNCTION reject_dispatch_audit_mutation();
@@ -16,7 +17,7 @@ public class AuditAndStateConstraints : Migration
         ALTER TABLE "Billings" ADD CONSTRAINT billing_total CHECK ("Total" >= 0 AND "Revision" > 0);
         ALTER TABLE "Conversions" ADD CONSTRAINT conversion_positive CHECK ("Factor" > 0);
         """);
-    protected override void Down(MigrationBuilder migrationBuilder)=>migrationBuilder.Sql("""
+    protected override void Down(MigrationBuilder migrationBuilder) => migrationBuilder.Sql("""
         DROP TRIGGER audit_append_only ON "Audit";
         DROP FUNCTION reject_dispatch_audit_mutation();
         ALTER TABLE "Cartons" DROP CONSTRAINT carton_state;

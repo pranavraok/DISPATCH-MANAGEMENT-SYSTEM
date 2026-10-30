@@ -28,12 +28,12 @@ export function WorkSelector({ ctx, companyWide = false }: { ctx: Context; compa
   </section>;
 }
 
-export function GroupedRecords({ ctx, rows, type, children }: { ctx: Context; rows: Row[]; type: Parameters<typeof groupWork>[2]; children: (rows: Row[], group: WorkGroup) => ReactNode }) {
+export function GroupedRecords({ ctx, rows, type, children, focusable = true }: { ctx: Context; rows: Row[]; type: Parameters<typeof groupWork>[2]; children: (rows: Row[], group: WorkGroup) => ReactNode; focusable?: boolean }) {
   const groups = groupWork(ctx.all, rows, type);
   const noun = { packing: "packing list", carton: "carton", shipment: "shipment", label: "print job", return: "return", job: "invoice request", audit: "event" }[type];
   return <div className="work-groups">{groups.map((g) => <details className="record-group" key={g.key} open>
     <summary><span><strong>{g.title}</strong><small>{g.detail}</small></span><span className="record-count">{g.rows.length} {noun}{g.rows.length === 1 ? "" : "s"}</span></summary>
-    {g.scope.kind !== "all" && workKey(g.scope) !== workKey(ctx.work) && <div className="group-actions"><button className="text-link" onClick={() => ctx.selectWork(g.scope)}>Show only this {g.scope.kind === "packing" ? "packing list" : g.scope.kind} <ArrowRight size={14} /></button></div>}
+    {focusable && g.scope.kind !== "all" && workKey(g.scope) !== workKey(ctx.work) && <div className="group-actions"><button className="text-link" onClick={() => ctx.selectWork(g.scope)}>Show only this {g.scope.kind === "packing" ? "packing list" : g.scope.kind} <ArrowRight size={14} /></button></div>}
     {children(g.rows, g)}
   </details>)}</div>;
 }

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { App } from "./main";
 import { workFixture } from "./work-fixture";
 import { projectWork, type WorkScope } from "./work";
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
-let requests: ReturnType<typeof vi.fn>;
+let requests: Mock<(url: string) => Promise<Response>>;
 beforeEach(() => {
   window.history.replaceState(null, "", "/#cartons");
   localStorage.clear();
@@ -99,5 +99,46 @@ describe("shipment grouping across sidebar pages", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
     fireEvent.click(clear);
     expect(await screen.findByText("CT-ONE")).toBeTruthy();
+  });
+
+  it("groups available cartons by packing list inside the reservation dialog", async () => {
+    render(<App />);
+    await screen.findByText("CT-ONE");
+    fireEvent.change(screen.getByLabelText("Show work"), { target: { value: "trip:TRIP-A" } });
+    await waitFor(() => expect(screen.queryByText("Opening selected work…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Trips & customers" }));
+    const trip = (await screen.findByRole("heading", { name: "KA-01-ALPHA" })).closest("section")!;
+    fireEvent.click(within(trip).getByRole("button", { name: "Add customer & cartons" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose cartons for a customer" });
+    expect(within(dialog).getByText(/^Packing: Packing Alpha/)).toBeTruthy();
+    expect(within(dialog).getByText(/^Packing: Packing Beta/)).toBeTruthy();
+    expect(within(dialog).getByText("CT-FREE")).toBeTruthy();
+    expect(within(dialog).getByText("CT-STOCK")).toBeTruthy();
+    expect(within(dialog).queryByText("CT-ONE")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /Show only this/ })).toBeNull();
+  });
+
+  it("loads the chosen packing list even when its cartons are outside the initial list", async () => {
+    const original = requests.getMockImplementation()!;
+    requests.mockImplementation(async (url: string) => {
+      if (url === "/api/state") {
+        const s = workFixture();
+        s.cartons = s.cartons.filter((c) => c.id !== "CT-STOCK");
+        return json(s);
+      }
+      return original(url);
+    });
+    render(<App />);
+    await screen.findByText("CT-ONE");
+    fireEvent.click(screen.getByRole("button", { name: "Trips & customers" }));
+    const trip = (await screen.findByRole("heading", { name: "KA-01-ALPHA" })).closest("section")!;
+    fireEvent.click(within(trip).getByRole("button", { name: "Add customer & cartons" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose cartons for a customer" });
+    expect(within(dialog).queryByText("CT-STOCK")).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Choose packing list"), { target: { value: "PACK-B" } });
+    expect(await within(dialog).findByText("CT-STOCK")).toBeTruthy();
+    expect(within(dialog).queryByText("CT-FREE")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Select group (1 carton)" }));
+    expect(within(dialog).getByRole("button", { name: "Reserve 1 carton" }).hasAttribute("disabled")).toBe(false);
   });
 });

@@ -111,3 +111,5 @@ Repeatable synthetic workload: initialise a separate database ending in `_load` 
 Use Show work above each screen to choose All work, a packing list, a vehicle trip, or one customer shipment. The same selection stays active when switching screens or refreshing. Use Show all work to clear it. Packing lists hold cartons before reservation; assigned cartons are grouped by their customer shipment and vehicle. Selecting a vehicle shows all of its customers. Two shipments for the same customer still have separate IDs and groups. Settings always apply to the company.
 
 On Trips & customers or Home, use a shipment’s Labels, Loading or Billing button to open that section with the correct shipment already selected. Loading choices include vehicle, customer, destination and shipment ID. Do not change work while a scan result is uncertain; recover the original scan first.
+
+Inside Add customer & cartons, choose a packing list to load its eligible cartons. Cartons are grouped by packing list, with a Select group action for batch reservation. This picker keeps the vehicle context and does not change the shared work selector while the dialog is open.

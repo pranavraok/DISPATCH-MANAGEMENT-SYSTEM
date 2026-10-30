@@ -1,6 +1,6 @@
-import { api } from "./api";
+import { api, state as loadWorkState } from "./api";
 import { plainLabel } from "./brand";
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import {
   Plus,
   Check,
@@ -20,6 +20,7 @@ import {
   type Row,
   type Group,
   type Line,
+  type State,
   parse,
   number,
   money,
@@ -957,6 +958,7 @@ export function CartonScreen(ctx: Context) {
           close={() => setHistory(null)}
         >
           <h3>{history.id}</h3>
+          <p>Packing list: {ctx.all.manifests.find((m) => m.id === history.manifestId)?.name ?? history.manifestId}</p>
           <dl className="carton-facts">
             <div><dt>Group</dt><dd>{history.marking}</dd></div>
             <div><dt>Status</dt><dd>{plainLabel(history.state)}</dd></div>
@@ -983,7 +985,24 @@ export function TripsScreen(ctx: Context) {
     [transporter, setTransporter] = useState(""),
     [customer, setCustomer] = useState(s.customers[0]?.id ?? ""),
     [destination, setDestination] = useState(""),
-    [ids, setIds] = useState<string[]>([]);
+    [ids, setIds] = useState<string[]>([]),
+    [inventorySource, setInventorySource] = useState(""),
+    [inventoryData, setInventoryData] = useState<State | null>(null),
+    [inventoryBusy, setInventoryBusy] = useState(false),
+    [inventoryError, setInventoryError] = useState("");
+  useEffect(() => {
+    if (!allocating || !inventorySource) { setInventoryData(null); setInventoryError(""); setInventoryBusy(false); return; }
+    const controller = new AbortController();
+    setInventoryData(null); setInventoryError(""); setInventoryBusy(true);
+    loadWorkState(controller.signal, { kind: "packing", id: inventorySource }).then((data) => {
+      if (controller.signal.aborted) return;
+      if (data.workMissing) throw Error("Packing list not found.");
+      setInventoryData(data);
+    }).catch((e) => { if (!controller.signal.aborted) setInventoryError((e as Error).message); }).finally(() => { if (!controller.signal.aborted) setInventoryBusy(false); });
+    return () => controller.abort();
+  }, [allocating, inventorySource]);
+  const reservationContext = inventoryData ? { ...ctx, all: inventoryData } : ctx;
+  const sourceCartons = inventorySource ? inventoryData?.workLoadedKey === "packing:" + inventorySource ? inventoryData.cartons.filter((c) => c.manifestId === inventorySource) : [] : ctx.work.kind === "packing" ? s.cartons : ctx.all.cartons;
   return (
     <>
       <Heading
@@ -1036,6 +1055,7 @@ export function TripsScreen(ctx: Context) {
                   onClick={() => {
                     setAllocating(t.id);
                     setIds([]);
+                    setInventorySource("");
                   }}
                 >
                   Add customer & cartons
@@ -1237,6 +1257,7 @@ export function TripsScreen(ctx: Context) {
           title="Choose cartons for a customer"
           close={() => setAllocating(null)}
         >
+          <p>Vehicle: <strong>{ctx.all.trips.find((t) => t.id === allocating)?.vehicle ?? allocating}</strong> · {allocating}</p>
           <Field label="Customer">
             <select
               value={customer}
@@ -1258,20 +1279,25 @@ export function TripsScreen(ctx: Context) {
               onChange={(e) => setDestination(e.target.value)}
             />
           </Field>
+          <Field label="Choose packing list">
+            <select aria-label="Choose packing list" value={inventorySource} onChange={(e) => { setInventorySource(e.target.value); setInventoryData(null); setIds([]); }}>
+              <option value="">All shown packing lists</option>
+              {ctx.all.manifests.filter((m) => m.state === "Approved").map((m) => <option key={m.id} value={m.id}>{m.name} · {m.id}</option>)}
+            </select>
+          </Field>
+          {inventoryBusy && <p role="status">Loading this packing list’s cartons…</p>}
+          {inventoryError && <div className="notice error" role="alert">{inventoryError}</div>}
           <p>
             Choose the exact cartons leaving in this shipment. Remaining cartons
             stay available for another day or vehicle.
           </p>
-          <div className="allocation-list">
-            {(ctx.work.kind === "packing" ? s.cartons : ctx.all.cartons)
-              .filter(
+          <GroupedRecords ctx={reservationContext} focusable={false} type="carton" rows={sourceCartons.filter(
                 (c) =>
                   c.state === "Available" &&
                   c.verified &&
                   !c.held &&
                   (!c.customerId || c.customerId === customer),
-              )
-              .map((c) => (
+              )}>{(records) => <><div className="group-actions"><button className="secondary small" onClick={() => setIds((previous) => records.every((c) => previous.includes(c.id)) ? previous.filter((id) => !records.some((c) => c.id === id)) : [...new Set([...previous, ...records.map((c) => c.id)])])}>{records.every((c) => ids.includes(c.id)) ? "Clear this group" : "Select group (" + records.length + (records.length === 1 ? " carton)" : " cartons)")}</button></div><div className="allocation-list">{records.map((c) => (
                 <label key={c.id}>
                   <input
                     type="checkbox"
@@ -1293,11 +1319,10 @@ export function TripsScreen(ctx: Context) {
                     </small>
                   </span>
                 </label>
-              ))}
-          </div>
+              ))}</div></>}</GroupedRecords>
           <button
             className="primary wide"
-            disabled={!ids.length}
+            disabled={!ids.length || inventoryBusy || !!inventoryError}
             onClick={async () => {
               const result = await action(ctx, "allocate", {
                   tripId: allocating,
@@ -1308,7 +1333,7 @@ export function TripsScreen(ctx: Context) {
               if (result) { setAllocating(null); ctx.selectWork({ kind: "shipment", id: result.id }); }
             }}
           >
-            Reserve {ids.length} cartons
+            Reserve {ids.length} {ids.length === 1 ? "carton" : "cartons"}
           </button>
         </Modal>
       )}
@@ -1535,6 +1560,7 @@ function BillingEditor({
     [terms, setTerms] = useState(previousData?.terms ?? "");
   return (
     <Modal title="Check bill" close={close}>
+      <p><strong>{shipmentName(ctx.all, shipment.id)}</strong></p>
       <div className="notice amber">
         Tally prices are not available yet. Enter approved prices and the reason. Tax and freight tax still need an accountant’s check.
       </div>

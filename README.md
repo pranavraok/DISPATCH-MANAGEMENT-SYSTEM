@@ -1,8 +1,12 @@
-# Electro Group Dispatch Control
+# Electro Group of Industries — Dispatch
 
-Case 2 packed-carton registration, unique QR labelling, verified dispatch and controlled billing for Electro Group of Industries.
+Dispatch application for Electro Group of Industries (Electrotech Services): record packed cartons, print and check labels, load vehicles, and review billing.
 
 This is a runnable React/TypeScript + ASP.NET Core 10 + PostgreSQL application, not only a visual prototype. The complete implementation specification is retained in [docs/MASTER_SPECIFICATION.txt](docs/MASTER_SPECIFICATION.txt). Delivery is staged. Actual Tally invoice creation/readback and production readiness are **not** claimed.
+
+Live trial: https://electro-group-dispatch.vercel.app/
+
+The company correction and simple-English interface supersede the previous branding in the original master prompt. Sample item names and SKU quantities are fictional fixtures, not the company catalogue.
 
 ## Start
 

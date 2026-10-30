@@ -277,7 +277,11 @@ export function App() {
     const request = client.envelope(type, data);
     try {
       const result = await client.send(request);
-      await refresh().catch(() =>
+      const deletedKind = { deleteManifest: "packing", deleteTrip: "trip", deleteShipment: "shipment" }[type];
+      const refreshAfterSave = deletedKind === work.kind && work.kind !== "all" && data.id === work.id
+        ? (async () => { selectWork({ kind: "all" }); const next = await client.state(); setState(next); setLastSync(new Date()); })()
+        : refresh();
+      await refreshAfterSave.catch(() =>
         setError("Saved. Refresh the page to see the latest information."),
       );
       setToast(result.message ?? "Saved.");

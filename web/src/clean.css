@@ -122,6 +122,8 @@ summary:focus-visible { outline: 3px solid #7eaa67; outline-offset: -3px; }
 .work-card:not([open]) > summary, .trip-card > .trip-foldout:not([open]), .trip-card > .trip-foldout:not([open]) > summary { height: 100%; }
 .work-card[open] > summary, .trip-foldout[open] > summary { background: #f8faf6; border-bottom: 1px solid var(--line); min-height: 220px; }
 .work-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.delete-work { display: inline-flex; align-items: center; gap: 5px; }
+.primary.destructive { background: #a13d35; border-color: #a13d35; }
 .work-card-kind { color: #6a7e6d; font-size: 12px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
 .record-card-grid .work-card-title, .trip-card-grid .work-card-title { display: block; color: #244b37; font-size: 18px; font-weight: 650; line-height: 1.4; letter-spacing: -.2px; overflow-wrap: anywhere; }
 .work-card-subtitle { font-size: 15px; line-height: 1.5; color: #526c59; overflow-wrap: anywhere; }

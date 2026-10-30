@@ -15,6 +15,9 @@ New standard carton labels encode `Q<14-character base64url identity>.<uppercase
 | Type | Required data | Role |
 |---|---|---|
 | saveManifest / importManifest | name, warehouseId, optional customerId, notes, groups; id/version when editing | PackingClerk / PackingSupervisor |
+| deleteManifest | id, version, reason, confirmed=true; only unused cartons with no allocation history | PackingSupervisor |
+| deleteTrip | id, reason, confirmed=true; only empty, undeparted trips | DispatchSupervisor |
+| deleteShipment | id, reason, confirmed=true; unload first, no load approval, invoice jobs or returns | DispatchSupervisor |
 | approveManifest | id, physicalConfirmed=true | PackingSupervisor |
 | createLabels | ids[], reason | PackingClerk / PackingSupervisor |
 | labelStatus | id, state, reason | PackingClerk / PackingSupervisor |

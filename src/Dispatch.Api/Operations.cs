@@ -49,6 +49,33 @@ public sealed class Operations(DispatchDb db)
     {
         switch (type)
         {
+            case "deleteManifest":
+                {
+                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); Check(Flag(d, "confirmed"), "Confirm deleting this packing list.");
+                    var m = await Get<Manifest>(Str(d, "id")); Check(d.TryGetProperty("version", out var version) && version.TryGetInt32(out var expectedVersion) && expectedVersion == m.Version, "This list changed. Refresh before deleting.", 409);
+                    var cartons = await db.Cartons.Where(c => c.CompanyId == company && c.ManifestId == m.Id).ToListAsync(); var ids = cartons.Select(c => c.Id).ToArray();
+                    Check(cartons.All(c => c.State == "Available") && !await db.Allocations.AnyAsync(a => a.CompanyId == company && ids.Contains(a.CartonId)) && !await db.Returns.AnyAsync(r => r.CompanyId == company && ids.Contains(r.CartonId)), "Only unused packing lists can be deleted. Release reservations first; dispatched history must be kept.");
+                    Audit("deletedPackingContents", m.Id, new { manifest = m, cartons, reason = Str(d, "reason") });
+                    db.Cartons.RemoveRange(cartons); db.Manifests.Remove(m); return new { message = "Packing list deleted. Its old carton labels are no longer valid." };
+                }
+            case "deleteShipment":
+                {
+                    Permissions.Require(actor, "DispatchSupervisor"); RequireReason(d); Check(Flag(d, "confirmed"), "Confirm deleting this shipment.");
+                    var s = await Get<Shipment>(Str(d, "id")); var allocations = await db.Allocations.Where(a => a.CompanyId == company && a.ShipmentId == s.Id).ToListAsync();
+                    Check(!s.LoadApproved && s.InvoiceJobId == null && s.State != "Departed" && allocations.All(a => a.State is "Reserved" or "Released") && !await db.Jobs.AnyAsync(j => j.CompanyId == company && j.ShipmentId == s.Id) && !await db.Returns.AnyAsync(r => r.CompanyId == company && r.ShipmentId == s.Id), "Unload all cartons first. Approved, invoiced and dispatched shipments cannot be deleted.");
+                    foreach (var a in allocations.Where(a => a.Active)) (await Get<Carton>(a.CartonId)).State = "Available";
+                    Audit("deletedShipmentContents", s.Id, new { shipment = s, allocations, reason = Str(d, "reason") });
+                    db.LoadingSessions.RemoveRange(await db.LoadingSessions.Where(x => x.CompanyId == company && x.ShipmentId == s.Id).ToListAsync());
+                    db.Billings.RemoveRange(await db.Billings.Where(x => x.CompanyId == company && x.ShipmentId == s.Id).ToListAsync()); db.Allocations.RemoveRange(allocations); db.Shipments.Remove(s);
+                    return new { message = "Shipment deleted. Reserved cartons are available again." };
+                }
+            case "deleteTrip":
+                {
+                    Permissions.Require(actor, "DispatchSupervisor"); RequireReason(d); Check(Flag(d, "confirmed"), "Confirm deleting this trip.");
+                    var t = await Get<Trip>(Str(d, "id")); Check(t.State == "Open" && !await db.Shipments.AnyAsync(s => s.CompanyId == company && s.TripId == t.Id), "Only an empty, undeparted trip can be deleted. Delete its unused shipments first.");
+                    db.LoadingSessions.RemoveRange(await db.LoadingSessions.Where(x => x.CompanyId == company && x.TripId == t.Id).ToListAsync()); Audit("deletedTripContents", t.Id, new { trip = t, reason = Str(d, "reason") }); db.Trips.Remove(t);
+                    return new { message = "Vehicle trip deleted." };
+                }
             case "saveProduct":
                 {
                     Permissions.Require(actor, "Billing"); RequireReason(d); var sku = Str(d, "sku"); Check(sku.Length is >= 1 and <= 50 && Str(d, "name").Length >= 2 && Str(d, "unit").Length >= 1, "Exact SKU, name and base unit required."); var p = await db.Products.SingleOrDefaultAsync(x => x.CompanyId == company && x.Sku == sku); if (p == null) { p = new Product { CompanyId = company, Sku = sku }; db.Products.Add(p); } else Check(p.Unit == Str(d, "unit") || !await db.Cartons.AnyAsync(c => c.CompanyId == company && c.Lines.Contains(sku)), "Cannot change a unit already captured in carton snapshots."); var before = new { p.Name, p.Unit, p.TallyId, p.TallyName }; p.Name = Str(d, "name"); p.Unit = Str(d, "unit"); p.TallyId = Str(d, "tallyId") is { Length: > 0 } native ? native : null; p.TallyName = Str(d, "tallyName") is { Length: > 0 } name ? name : null; Audit("productMapping", p.Id, new { before, sku, reason = Str(d, "reason") }); return new { id = p.Id, message = "Operational product mapping saved. No Tally master was created." };

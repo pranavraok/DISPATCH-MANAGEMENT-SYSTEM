@@ -14,6 +14,7 @@ import {
   Truck,
   ScanLine,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { Badge, Empty, Field, Modal, type Context } from "./main";
 import {
@@ -68,6 +69,24 @@ const may = (ctx: Context, ...roles: string[]) =>
 const action = (ctx: Context, type: string, data: Row) =>
   ctx.run(type, data).catch(() => null);
 const groupTotal = (g: Group[]) => g.reduce((n, x) => n + x.count, 0);
+function DeleteWorkButton({ ctx, kind, record }: { ctx: Context; kind: "packing" | "trip" | "shipment"; record: Row }) {
+  const [open, setOpen] = useState(false), [reason, setReason] = useState(""), [checked, setChecked] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState("");
+  const label = kind === "packing" ? "packing list" : kind === "trip" ? "vehicle trip" : "shipment";
+  const permitted = may(ctx, kind === "packing" ? "PackingSupervisor" : "DispatchSupervisor");
+  return <>
+    <button className="text-link danger delete-work" disabled={!permitted || hasPendingScan()} title={hasPendingScan() ? "Resolve the pending scan before deleting work." : undefined} onClick={() => { setOpen(true); setReason(""); setChecked(false); setError(""); }}><Trash2 size={15} />Delete {label}</button>
+    {open && <Modal title={"Delete " + label} close={() => { if (!saving) setOpen(false); }}>
+      <p><strong>{record.name || record.vehicle || shipmentName(ctx.all, record.id)}</strong></p>
+      <p>{kind === "packing" ? "This removes the unused packing list and its cartons. Destroy any printed labels for these cartons." : kind === "trip" ? "Only an empty trip that has not departed can be deleted." : "Reserved cartons become available again. Loaded, approved or invoiced shipments must be resolved before deletion."} A deletion record is kept in history.</p>
+      <form onSubmit={async e => { e.preventDefault(); if (!checked || saving) return; setSaving(true); setError(""); try { await ctx.run(kind === "packing" ? "deleteManifest" : kind === "trip" ? "deleteTrip" : "deleteShipment", {id:record.id,reason,confirmed:true,...(kind === "packing" ? {version:record.version} : {})}); setOpen(false); } catch (e) { setError((e as Error).message); } finally { setSaving(false); } }}>
+        <Field label="Reason for deleting"><input value={reason} onChange={e=>setReason(e.target.value)} minLength={3} required disabled={saving} /></Field>
+        <label className="check-field"><input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)} disabled={saving} />I understand this removes the {label} from active work.</label>
+        {error && <p className="notice error" role="alert">{error}</p>}
+        <div className="button-row"><button type="button" className="secondary" disabled={saving} onClick={()=>setOpen(false)}>Keep {label}</button><button className="primary destructive" disabled={!checked || reason.trim().length < 3 || saving}>{saving ? "Deleting…" : "Delete " + label}</button></div>
+      </form>
+    </Modal>}
+  </>;
+}
 export function PackingScreen(ctx: Context) {
   const { s } = ctx;
   const [edit, setEdit] = useState<Row | null>(null),
@@ -161,6 +180,7 @@ export function PackingScreen(ctx: Context) {
                               Approve
                             </button>
                           )}
+                          <DeleteWorkButton ctx={ctx} kind="packing" record={m} />
                         </div>
                       </td>
                     </tr>
@@ -1001,6 +1021,7 @@ export function TripsScreen(ctx: Context) {
               <WorkCardSummary state={ctx.all} scope={{ kind: "trip", id: t.id }} heading />
             </summary>
               <div className="trip-actions button-row">
+                <DeleteWorkButton ctx={ctx} kind="trip" record={t} />
                 <button
                   className="primary small"
                   disabled={
@@ -1091,6 +1112,7 @@ export function TripsScreen(ctx: Context) {
                     <details className="shipment-options">
                       <summary>More actions</summary>
                       <div className="shipment-option-links">
+                        <DeleteWorkButton ctx={ctx} kind="shipment" record={sh} />
                         <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("cartons"); }}>Labels</button>
                         <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("billing"); }}>Billing</button>
                         <button

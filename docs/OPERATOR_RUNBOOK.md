@@ -74,6 +74,8 @@ If the browser refreshes/crashes, reload saved state, explicitly restart/unlock 
 
 Create a vehicle trip and independent customer shipments. Select the exact verified cartons in the subset leaving today. Others remain available. A trip may contain several customers; one customer's carton is rejected in another customer's loading session. Cartons are never partially dispatched by editing a sealed box quantity.
 
+Open a packing card to find Delete packing list. A supervisor can remove an unused list and its unallocated cartons; destroy any printed labels for those cartons. On Trips, delete an empty vehicle trip from its expanded details, or choose Delete shipment under that shipment's More actions. Deleting an unloaded, unapproved shipment frees its reserved cartons and closes its scanning sessions. A reason and explicit confirmation are required. Loaded, invoiced and dispatched work is protected, and deletion history remains in the audit. Resolve any uncertain scan before deleting work.
+
 An authorised Unload action removes that carton and all quantities operationally, with a compensating audit event. After load approval/invoicing, use a controlled correction. Unposted reserved shipments can be cancelled and reservations released after every loaded carton is physically unloaded. Vehicle edits are audited through the updateTrip API before departure.
 
 ## 6. Billing and separate Tally PC

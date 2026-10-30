@@ -1,0 +1,5 @@
+group,cartons,sku,quantity,unit
+BOX-001,1,SND01,100,packets
+BOX-002,1,SND01,80,packets
+BOX-003,1,SND01,40,packets
+BOX-003,1,ROS01,20,packets

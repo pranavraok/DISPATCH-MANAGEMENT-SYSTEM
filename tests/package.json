@@ -1,0 +1,1 @@
+{"name":"dispatch-integration-tests","private":true,"type":"module","scripts":{"test":"node integration.mjs"},"dependencies":{"pg":"8.16.3"}}

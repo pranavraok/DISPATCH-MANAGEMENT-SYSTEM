@@ -1,0 +1,23 @@
+FROM node:22.22.2-bookworm-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403 AS build
+WORKDIR /src
+COPY global.json NuGet.Config ./
+COPY src/Dispatch.Api/Dispatch.Api.csproj src/Dispatch.Api/
+RUN dotnet restore src/Dispatch.Api/Dispatch.Api.csproj
+COPY src/Dispatch.Api/ src/Dispatch.Api/
+RUN dotnet publish src/Dispatch.Api/Dispatch.Api.csproj -c Release -o /app --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14
+WORKDIR /app
+COPY --from=build /app .
+COPY --from=web /web/dist ./wwwroot
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+USER $APP_UID
+ENTRYPOINT ["dotnet","Dispatch.Api.dll"]

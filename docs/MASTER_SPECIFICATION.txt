@@ -1,0 +1,377 @@
+You are my senior full-stack engineer and warehouse/Tally integration engineer. Build a working Case 2 carton-registration, QR-labelling, dispatch-verification and billing application for Kriyantha Business Solutions and its client, KR Vishwanath Agarbatti Works.
+
+This is an implementation request. Create the application, backend, database migrations, Windows connector, tests and operating instructions. Work in complete, runnable stages and keep a checklist. A visual prototype or architecture explanation alone does not satisfy this request.
+
+1. CONFIRMED CONTEXT AND DECISIONS
+
+- Case 2 only: cartons are already physically packed. We capture their actual contents, approve those contents, label them, allocate them, scan them during loading, approve billing, create/verify the Tally invoice, print documents and record departure.
+- The business has about 300 products initially, with room for a much larger catalogue.
+- We already own TallyPrime. Its version/edition is unknown; use a conservative XML/HTTP integration baseline and verify the installed capabilities.
+- Tally runs on a DIFFERENT Windows computer. Do not require Tally on the scanner/application workstation.
+- The likely accounting process is a direct inventory Sales Invoice. Confirm the actual pattern in a test company before enabling real posting.
+- Both workflows are needed: customer-assigned packed consignments, and general packed stock assigned to customers later.
+- Support both manual packed-group entry and validated Excel/CSV imports.
+- Support single-product cartons, mixed-product cartons, different quantities of the same product in different cartons, and individually unique contents.
+- Rates/discounts may come from Tally or be entered/overridden by authorised billing staff, with reasons and audit history.
+- GST, freight, discounts, units, ledgers and invoice layout must adapt to the accountant's actual Tally configuration. Their details are currently unknown.
+- Support partial consignments across vehicles/dates, multiple customers in one vehicle, unloading, returns and corrections.
+- Trial hardware: RETSOL D-5015 wireless 1D/2D scanner WITHOUT A SCREEN, used with its receiver/Bluetooth connection and a nearby Windows PC.
+- Trial labels: ordinary A4 paper printed with genuine scannable QR codes. A thermal printer is not required for the trial.
+- No employee personal phones are required.
+- Deploy the application/database online so the MD can securely view the dashboard from outside the factory.
+- The same application, APIs, PostgreSQL database model and connector design must continue into production. Use cheaper hardware and smaller deployment resources for the trial.
+- "Scale at any level" is an aspiration. Design for expansion, define measurable workloads and report measured limits; do not promise unlimited capacity.
+
+2. TECHNICAL BASELINE AND NETWORK TOPOLOGY
+
+Use React + TypeScript for the frontend, ASP.NET Core using a currently supported LTS .NET runtime for the API/workers, and PostgreSQL from day one. Verify current supported versions using official documentation and pin dependencies. Use EF Core/Npgsql migrations where appropriate.
+
+Use a modular monolith initially, a durable PostgreSQL job/outbox mechanism and background workers. Avoid introducing Kubernetes, multiple microservices or a separate message broker without a measured need. Provide container/deployment configuration and Windows development instructions.
+
+Required separation:
+A. Scanner PC: browser application, D-5015 receiver, local speakers and trial paper printer.
+B. Cloud: authenticated web application/API, PostgreSQL, durable jobs, reports and dashboard updates.
+C. Tally computer: a separately installed Windows connector that makes authenticated OUTBOUND HTTPS connections to the cloud and exchanges XML with Tally locally.
+D. Printing: a workstation-specific print adapter/agent when needed. The printer may be attached to the scanner PC, not the Tally PC.
+
+Prefer the connector beside Tally using loopback. If it must run elsewhere on a trusted LAN, configure a restricted private endpoint. Do not expose Tally port 9000, PostgreSQL or a Windows desktop directly to the public internet. Do not assume a cloud server's localhost is the factory's Tally computer.
+
+Tally must actually be running with the intended company loaded and integration enabled. An installed connector does not guarantee this. Configuration menus vary by Tally version. Provide a connection wizard and actionable diagnostics.
+
+Use the same backend for future dedicated Android scanning terminals, with a replaceable scanner-input adapter. The trial must work with the D-5015 and a desktop browser.
+
+3. SOURCES OF TRUTH AND ACCOUNTING BOUNDARIES
+
+- Tally is the accounting source of truth for booked inventory, customer ledgers, item masters, approved invoice conventions and posted vouchers.
+- PostgreSQL is the operational source of truth for physical carton identities/contents, manifests, verification, reservations, loading/unloading, trips, approvals, jobs and audit history.
+- A scan never calls Tally synchronously per carton.
+- Registering already-packed goods must not create another receipt or manufacture entry in Tally.
+- Loading/unloading changes operational state, not booked inventory by itself.
+- Under the validated direct-invoice process, the inventory Sales Invoice moves booked stock once. Avoid an additional stock deduction at scanning or dispatch.
+- If investigation reveals Delivery Note tracking instead, implement the validated linked workflow without a second inventory movement. Do not silently mix accounting patterns.
+- Show Tally stock sync timestamps and pending movements. Physical packed availability and Tally book balance are different measures.
+- Do not claim transactional atomicity between PostgreSQL and Tally; implement explicit reconciliation and exception handling.
+
+4. DOMAIN MODEL AND INVARIANTS
+
+Model company, warehouse/godown mapping, users/roles, products, units/conversions, customer ledger and delivery addresses, master mappings/snapshots, packing groups, packed manifests, cartons and content lines, label revisions/jobs, verification, reservations, customer shipments, vehicle trips, allocations, loading sessions/events, billing revisions, posting jobs/attempts, confirmed voucher references, documents, returns, adjustments and append-only audit events.
+
+A vehicle trip can contain multiple customer shipments. A packed manifest may feed multiple shipments. An invoice belongs to the approved customer-shipment/billing document, never indiscriminately to every customer on a truck. Default to one invoice per approved customer shipment; require an explicit validated policy for consolidation.
+
+Give every physical carton a unique immutable identifier. A carton may have multiple content lines but represents one carton. A packing group is a data-entry shortcut, not a reusable carton identity.
+
+Enforce company/warehouse scope, foreign keys, unique active allocations and database constraints. Use separate state machines for carton, shipment, trip, invoice job and return. Define legal transitions and who can perform them.
+
+Use decimal quantities/money, explicit units, precision and rounding. Avoid floating-point accounting. A packet, dozen, bundle and kg are not interchangeable. Store original/base units and validated conversions where needed. Reject missing or ambiguous conversions.
+
+Support optional Tally-configured batches, expiry/manufacture dates, godowns, actual versus billed quantities and free quantities only when applicable. Do not invent required product attributes. Snapshot relevant master, pricing, tax and carton-content versions in approved transactions.
+
+5. PACKED REGISTRATION AND APPROVAL
+
+Provide an efficient grid for:
+- number of cartons in a group;
+- one or several products with quantity/unit per carton;
+- optional configured batch/godown details;
+- destination/customer if already assigned;
+- physical group marking and supervisor notes.
+
+Calculate described carton count, distinct products and total quantities. Do not infer carton contents from only total cartons and number of products.
+
+Provide drafts, autosave with conflict handling, server validation and resumable sessions. Large groups should expand into uniquely identified cartons once during controlled approval; retries must not create duplicates.
+
+Imports need downloadable templates, preview/dry-run, exact SKU/unit/batch mapping, per-row errors, duplicate detection and idempotent commit. Preserve leading-zero SKUs. Reject invalid numbers, empty/zero/negative quantities, unsupported units and inconsistent totals. Do not silently import only the valid part unless the user deliberately selects a documented partial-import operation.
+
+Do not execute spreadsheet formulas/macros. Bound upload size/rows and protect exports against spreadsheet formula injection. Allow both group-based and individual-carton import formats.
+
+A supervisor must confirm how the records match actual physical boxes before approving contents. Knowing database contents does not prove sealed contents. If physical groups cannot be distinguished, require verification rather than generating misleading labels.
+
+6. QR IDENTITY AND LABEL LIFECYCLE
+
+Generate genuine QR codes locally/server-side with a maintained library. Encode a short versioned internal carton identifier and relevant label/content revision, with an optional checksum. Store product/customer/quantity details in the database. A checksum is not authentication.
+
+The QR must resolve only through authorised application validation. Reject malformed, unknown, wrong-company and obsolete codes. Product-level barcodes must not be counted as unique cartons.
+
+Every physical carton gets its own QR, including 1,000 identical cartons. "Print All" creates the whole label job once. Never use one shared QR for all identical boxes.
+
+Label content: human-readable carton ID, revision, group, product/quantity/unit breakdown and useful company identifiers. Include customer/destination only where appropriate. General stock labels must remain meaningful before customer allocation. If an assignment or content change invalidates printed information, require the corresponding label revision and reverification.
+
+Support A4 printable PDF sheets with configurable label dimensions, margins, quiet zones and actual-size printing. A reasonable trial default is about 90 x 50 mm per label, roughly 30-35 mm QR, two columns by five rows, with dimensions validated against the actual printer. Prevent clipping and over-dense payloads. Provide a test page.
+
+Support all-label, selected-label and failed-range reprints. Reprint the SAME carton ID/revision for an unchanged physical carton; do not create new inventory. Record reason, operator and copy history. Printer submission does not prove physical printing.
+
+Changes to unbilled, unloaded contents require authorisation, a new revision where appropriate and physical reverification. Splitting/repacking a physical carton retires the old identity and creates linked replacement identities. Billed/departed contents are immutable; use correction/return workflows.
+
+Cloned physical labels cannot be distinguished by a static QR alone. Enforce duplicate ID checks and explain the remaining physical-label-control limitation.
+
+7. LABEL ATTACHMENT AND CARTON VERIFICATION
+
+Keep "label generated", "print submitted", "labels attached" and "contents/identity verified" separate. A downloaded PDF is not proof that labels were attached.
+
+Provide group-wise labelling instructions and scan verification. Record the verifier and timestamps. Block loading of unverified, held, obsolete or retired cartons.
+
+Preserve the link between physical carton, content revision and invoice snapshot. Prevent quiet reassignment after loading/approval.
+
+8. DISPATCH, PARTIAL SHIPMENTS AND VEHICLE TRIPS
+
+Allow selection/reservation of verified available cartons, including general packed stock assigned to a customer at this point. Validate destination, warehouse and applicable product quantities.
+
+Support a subset leaving today and remaining cartons later. Track packed total, reserved, loaded, invoiced, departed, returned and still available without double counting.
+
+A trip may contain several customers, each with independent allocations, progress, billing and documents. Bind every loading session to the selected trip and customer shipment. A carton belonging to another shipment is rejected even if its destination is similar.
+
+Do not dispatch part of a sealed carton merely by changing a quantity field. Require a physical split/repack with replacement IDs and traceability.
+
+Capture vehicle, driver, transporter, date and applicable dispatch references with configurable mandatory fields. Correct vehicle changes before departure through audited reassignment; do not erase history.
+
+9. D-5015 SCANNER INPUT AND OPERATOR EXPERIENCE
+
+Provide a real hardware setup guide: pair the supplied receiver/Bluetooth arrangement, verify input in a plain text field, configure the supported keyboard/HID mode and an Enter terminator using the actual manual.
+
+Use LIVE transmission for dispatch. The D-5015's offline/inventory storage is not validated loading. Handle or block later replay of buffered codes through an explicit reconciliation path.
+
+The loading screen needs:
+- a clearly selected trip/customer shipment;
+- dedicated scan focus, large text and large green/amber/red/pending states;
+- accepted carton count versus allocation, product totals, last result and recent events;
+- operator, station and reliable API connectivity indicators;
+- an explicit Start Loading & Enable Sound action and audio test;
+- recovery after refresh, browser crash or workstation restart.
+
+Do not promise receiver battery, RSSI, radio-disconnect detection or host-controlled scanner tones through generic keyboard/HID input. Expose only capabilities actually available; manual diagnostics/last-input information are acceptable.
+
+Handle scan focus loss, modals, accidental input into another field, CR/LF duplicates, paste versus typed input, invalid/overlong payloads, rapid consecutive scans and UI backpressure. Timing heuristics are not proof of scanner identity.
+
+Create a stable request ID before submitting each scan attempt. Keep uncertain attempts available for reconciliation. Bound queues; clearly pause further scanning when safe handling capacity is exceeded. Never silently drop scans or route delayed input to a newly selected shipment.
+
+Only play the APPLICATION acceptance sound after the server has validated and COMMITTED acceptance. The scanner's own decode beep only means the code was read. Where the manual permits it, reduce/disable or distinguish it. Do not pretend the cheap scanner can play arbitrary application-controlled tones.
+
+Use distinct application sounds for accepted, duplicate, rejected and connection/pending states. Browser audio must be unlocked by user interaction and remain visually backed up. Sound is played through the nearby PC's audible speaker. No optimistic green acceptance while a request is pending.
+
+10. ATOMIC SCAN ACCEPTANCE AND UNLOADING
+
+Validate authenticated operator permission, current session/trip/shipment, company/warehouse, current label revision, carton verification, hold/return/retirement status, exact allocation and previous loading/departure.
+
+In one PostgreSQL transaction, lock the relevant records, validate state, persist the accepted event/current allocation and derive consistent totals. Concurrent scans of the same carton must result in one acceptance. Use uniqueness/state constraints as well as application checks.
+
+Distinguish:
+- retry of the same request ID: return its original outcome without another event;
+- a new scan attempt of an already loaded carton: show duplicate warning and do not add totals;
+- a request with an unknown outcome: reconcile by request ID before deciding to retry.
+
+Accepting a mixed carton increments one carton plus ALL its stored product quantities atomically.
+
+Refresh/reconnect must reload authoritative saved state. An app/API outage, session expiry or ambiguous timeout is not acceptance. Block confirmation while offline. No bulk "mark remaining loaded" shortcut in the live workflow.
+
+Provide a separate authorised Unload action that removes the carton and all its quantities, records a compensating event/reason and permits a legitimate reload. Do not erase the original load event. After approval/invoicing, require the appropriate controlled correction workflow.
+
+11. APPROVALS, PRICING AND BILLING
+
+The load must match the selected allocation by exact identities AND quantities, with no unresolved exceptions. Require physical load review and authorised approval before billing.
+
+For partial shipments, compare against that approved subset, not the original full manifest.
+
+Fetch available customer/product rates and terms from validated Tally data/mappings. If price lists or fields cannot be retrieved reliably on the installed version, show unavailable and provide authorised manual entry. Do not fabricate rates.
+
+Billing staff can edit permitted rates, discounts, freight and charges before final approval. Record old/new values, source, user and reason. Loader permissions must not include unrestricted price/tax edits.
+
+Create versioned billing snapshots. Material changes invalidate the relevant approval. Prevent changes racing with a posting job. After posting, use an authorised Tally correction/credit process.
+
+Adapt the sales invoice to the actual pattern: customer/bill-to/ship-to, GSTIN where applicable, place of supply, date/financial year, HSN/SAC mappings, quantities/units, rate basis, item/invoice discounts, freight/other charges, tax treatment, rounding and payment terms as actually configured.
+
+Do not guess actual GST rates or freight tax treatment from sample products. Do not assume imported XML automatically computes every tax/ledger line correctly. Establish a validated mapping/calculation contract against accountant-approved vouchers. If mapping is unresolved, allow operational work and draft billing but block final posting with actionable errors.
+
+12. TALLY ONBOARDING AND MASTER SYNC
+
+Build a wizard for connector pairing, version/capability identification, endpoint/port configuration, exact company identity, company-loaded checks, test requests and master mapping.
+
+Always address the intended company explicitly. Detect company switches and mismatched environments. Never fall back to whichever company happens to be active.
+
+Do not assume new Tally native JSON APIs, paid add-ons, Tally Server, Gold, cloud-Tally hosting privileges or arbitrary custom UDFs. Identify any genuine dependency during discovery.
+
+Read/export supported customer ledgers, item masters, units, relevant stock/godowns, batches and retrievable pricing/configuration. Keep last-sync time, sync errors and mapping status visible. Use stable native identifiers when available, scoped to company; names alone are fragile when renamed. Provide a controlled fallback mapping when identifiers/capabilities differ.
+
+Make master sync paginated/batched and incremental where the installed interface supports it. Default external master creation/deletion to disabled. Unknown/missing mappings must not silently create new Tally ledgers or items.
+
+Ask the accountant to create representative correct vouchers in an isolated TEST company and export XML. Use these and official documentation to derive the actual posting template. Cover ordinary sale, applicable taxes, discount, freight and return/credit pattern as needed.
+
+Use secure XML construction and parsing, escaping, correct dates/encodings and no DTD/XXE processing. No direct manipulation of Tally data files.
+
+13. DURABLE POSTING, TIMEOUTS AND RECONCILIATION
+
+One controlled posting stream per Tally company initially. Use durable job records, immutable payload hashes, operation IDs, attempts, leases, bounded retry policy and a crash-safe connector attempt journal. Handle duplicate deliveries and multiple connector starts safely.
+
+Illustrative job states: Draft, Approved, Queued, Claimed, Sending, ConfirmationUnknown, Confirmed, Rejected and NeedsReview. A lost lease after sending must not become an unrestricted new posting attempt.
+
+Before sending, check company, mappings, approvals, financial period, stock and validated invoice pattern. Respect existing Tally voucher numbering. Save actual voucher ID/GUID/number/date and relevant identifiers after verification.
+
+Choose a stable integration marker using fields/mechanisms actually supported and tested on that installation. Verify that it survives posting and can be queried back. Do not invent an idempotency header, XML tag or UDF, or assume narration uniqueness is enforced by Tally.
+
+Before first send and when recovering, look for an existing matching operation. After send, inspect response errors/counts AND read the voucher back. Compare company, customer, line quantities/units, rates, ledgers, taxes, totals and stock effect against the approved snapshot.
+
+HTTP success or CREATED=1 alone is not enough. A timeout/disconnect may mean the voucher was saved. Mark uncertain and reconcile; do not blindly retry Create. Consider an earlier attempt still in flight, not only a temporarily empty lookup result.
+
+If a reliable external duplicate guard cannot be established, hold ambiguous outcomes for review rather than claiming exactly-once execution. Explain the remaining boundary. A database lease cannot undo a request already executing in Tally.
+
+A known rejection can be corrected in a new approved revision. A confirmed or potentially confirmed attempt cannot be silently replaced. Manual Tally edits, deletion, cancellation, restored backups or voucher renumbering must become reconciliation exceptions rather than automatic duplicate recreation.
+
+14. STOCK CHECKS AND RESERVATIONS
+
+Prevent one carton being allocated to two active shipments. Coordinate SKU/unit/godown reservations transactionally where book-stock checking is enabled. Check both physical available cartons and relevant Tally balance.
+
+Revalidate stock before posting and expose stale snapshots. Pending invoices and confirmed movements not yet reflected in a refreshed snapshot must be accounted for without either overselling or subtracting twice.
+
+External accountant activity can change Tally stock independently. Do not claim a cloud reservation locks every human Tally transaction. Define conflict/rejection handling and negative-stock policy; default to blocking unresolved shortages.
+
+15. RETURNS AND CORRECTIONS
+
+Support pre-departure unloading separately from post-departure returns.
+
+For returns: reference original shipment, carton/content snapshot and invoice; record full/partial return, reason, condition, actual quantities, QC and restock/quarantine/disposal decision. Returned stock is not immediately available before authorised verification.
+
+Keep the original dispatched carton history. Repacked or newly redispatched returned goods need a controlled replacement identity linked to the original; old outbound labels must not become generally loadable again.
+
+Inventory receipt and accounting credit are separate controlled decisions. Reconcile what a Tally Credit Note/validated return voucher already does so no second stock receipt is created. Handle damaged goods, short returns, partial quantities from a mixed carton and replacement shipments.
+
+Cancel unposted drafts safely. For posted/in-transit/departed documents, use accountant-approved correction/credit/cancellation workflows with audit history and any applicable statutory status. Never delete history to make totals match.
+
+16. PRINTING AND DRIVER DOCUMENTS
+
+Provide:
+- A4 carton-label PDFs and print job history;
+- carton packing lists by shipment/customer and consolidated vehicle trip;
+- confirmed invoice output;
+- return receipts and relevant audit exports.
+
+Browser PDF preview/printing is sufficient for trial labels. For unattended local printing, implement a narrowly scoped authenticated print agent, explicitly bound to a workstation/printer. Do not execute arbitrary commands received from cloud jobs.
+
+A Windows service may not have the interactive user's printer/session access. Choose the appropriate user-session printing arrangement rather than assuming the Tally connector can print everywhere.
+
+Print invoices only from confirmed Tally data using a validated Tally export/print method where available, or an accountant-approved application layout matching the confirmed voucher. Do not claim an unknown Tally version universally exports invoice PDFs through a particular endpoint.
+
+A print failure after posting means reprint the existing invoice, not create a new sale. Record prepared/submitted/failed/unknown/operator-confirmed print states honestly.
+
+Keep carton QR codes distinct from statutory invoice QR/IRN requirements. Provide configurable e-invoice/e-way bill/document status gates where applicable, with validated integration or authorised manual reference capture. Do not manufacture statutory references or assume these services are already included.
+
+Permit departure only when all shipments remaining on the vehicle have their required approved documents/statuses. A failed customer's shipment must be resolved or formally unloaded/reassigned before release.
+
+17. REQUIRED SCREENS AND ROLES
+
+Implement coherent screens for login, dashboard, master sync/mapping, packed registration/import, approval, carton lookup/history, QR preview/printing, attachment verification, holds, shipment allocation, trips, scanner loading/unloading, exceptions, billing review, Tally jobs/reconciliation, invoice/packing-list printing, departure, returns, reports, users/settings and connector/print diagnostics.
+
+Use roles such as Admin, Packing Clerk, Packing Supervisor, Loader, Dispatch Supervisor, Billing/Accountant and MD Read-only. Allow one trial user to hold several roles through explicit permissions. Enforce permissions on the server, not only by hiding buttons.
+
+MD dashboard must work on a phone over the secure online URL and show packed/available, loading progress, pending approvals, invoice status, departed/returned quantities, exceptions and sync freshness. Show clearly when information is stale.
+
+Use an uncluttered professional interface with Kriyantha branding, readable typography, large loading controls, Indian date/number formatting and Asia/Kolkata display time. Store timestamps consistently, normally UTC. Do not hide essential errors behind colour alone. Keep implementation jargon out of loader screens.
+
+18. SECURITY, OPERATIONS AND AUDIT
+
+Use established authentication, secure sessions, HTTPS, server-side authorisation, company scope, CSRF protection where applicable, input validation, rate limits and safe file handling. Do not expose connector secrets, Tally responses with sensitive data or database credentials to the browser.
+
+Pair connectors to an exact environment/company; use revocable scoped credentials, protected local secret storage, heartbeat and reconnect/backoff. Trial/test credentials must not target the live company by accident.
+
+Audit approvals, overrides, reservations, scans, reprints, unloads, returns, mapping changes, posting attempts and reconciliation decisions. Preserve event actor, time, reason and relevant before/after values.
+
+Persist all operational progress in PostgreSQL. localStorage is not the dispatch database. Use a transactional outbox for post-commit notifications/jobs. Browser notifications/WebSocket or SignalR updates must be recoverable through authoritative API refresh.
+
+Provide structured logs, correlation IDs, job age/error monitoring, backups/retention, restore instructions and a tested restore procedure. Operational jobs must survive process restarts. Label PDFs and document snapshots must remain traceable. Bound stored sensitive logs and uploads.
+
+19. REPRESENTATIVE SEED DATA
+
+Create fictional, clearly labelled demo data, never real statutory documents.
+
+Customer: Ravi Stores, Mysuru. Products: SND01 Sandal and ROS01 Rose, illustrative base unit "packets".
+
+50-carton fixture:
+A: 20 cartons, each 100 Sandal.
+B: 15 cartons, each 80 Sandal.
+C: 10 cartons, each 100 Rose.
+D: 5 mixed cartons, each 40 Sandal + 20 Rose.
+Expected: 50 cartons, Sandal 3,400 packets, Rose 1,100 packets.
+
+Small 10-carton physical trial:
+A: 4 x 100 Sandal.
+B: 3 x 80 Sandal.
+C: 2 x 100 Rose.
+D: 1 x (40 Sandal + 20 Rose).
+Expected: 10 cartons, Sandal 680 packets, Rose 220 packets.
+
+Use different unique carton IDs for fixtures. If illustrating prices at Sandal Rs 10 and Rose Rs 12, net values before configured charges/taxes are Rs 47,200 and Rs 9,440 respectively. These are test values, not actual tax/rate assumptions.
+
+Seed other customers and cartons for wrong-shipment, duplicate, held, obsolete-label, unverified, previously dispatched and return scenarios.
+
+20. MEANINGFUL VERIFICATION
+
+Implement integration/concurrency tests with PostgreSQL, plus relevant UI tests and connector fixtures. Test:
+- grouped/individual imports, invalid data, repeated import/approval;
+- mixed cartons, quantity conversions, optional batches;
+- two operators racing for the same carton and competing reservations;
+- lost responses after a committed scan, browser refresh and session expiry;
+- rapid input, focus loss, offline scanner replay and wrong station context;
+- wrong customer/company/warehouse, held/retired/unverified/obsolete cartons;
+- unloading/reloading, partial consignments and multi-customer trips;
+- billing edits invalidating approvals;
+- Tally stopped, wrong company, missing masters, stock shortfall and rejected voucher;
+- voucher saved but response lost, connector crash before/after send and after reply;
+- lease expiry while posting, repeated job delivery and connector restart;
+- external Tally changes and restored-backup reconciliation;
+- print failure after confirmed invoice and label reprint without new identities;
+- returns, partial mixed-carton returns and no duplicate stock/accounting movement;
+- forbidden role/company access and audit persistence.
+
+Use representative XML fixtures from official examples and the eventual approved test-company exports. Test both real connector code paths and simulated failures; do not label simulated Tally success as real.
+
+Run a real end-to-end trial with the D-5015, paper QR labels, cloud API/database, separate-PC Tally connector and isolated Tally test company when hardware/access is available. Verify the actual saved invoice and stock movement. Until then, mark hardware/Tally checks as pending.
+
+21. LOAD AND RECOVERY VALIDATION
+
+Use the same APIs and PostgreSQL model for the trial and load tests. Provide repeatable seed/load scripts and record machine/hosting specification, data size, concurrency and results.
+
+Suggested initial benchmarks:
+- actual 300+ item mappings, then 5,000 synthetic items;
+- 100,000 carton records and 500,000 operational events;
+- 5, 10 and 20 simultaneous simulated operators;
+- configurable realistic scan cadence and bursts;
+- 30-60 minute sustained run;
+- representative small and large test-company invoices, with accountant activity assessed separately.
+
+A proposed target is p95 server-confirmed scan feedback below one second at the agreed workload, zero extra acceptances from duplicates/races, correct totals and restart recovery. Treat this as a target requiring measurement, not a guaranteed capacity.
+
+Keep bulk synthetic tests away from live Tally. Test Tally posting throughput separately; scanning speed does not prove invoice throughput.
+
+Use appropriate indexes, server pagination/filtering, bounded queries, virtualised grids, async bulk jobs and post-commit notifications. Recommend larger resources, archiving or further architectural changes only from measured bottlenecks. Do not claim a generic database benchmark proves the whole application.
+
+22. BUILD PROCESS AND DELIVERABLES
+
+Begin by examining the available workspace/tools, preserving unrelated work and selecting verified supported dependency versions. Do not ask me to repeat the confirmed business answers above.
+
+Produce a concise architecture/data model/state-transition plan and proceed to implementation. Track assumptions separately from verified integration facts. For unresolved accountant/Tally details, implement configuration/mapping screens and block only the affected posting action; continue independent application work.
+
+Build complete vertical slices: packed registration -> unique QR print -> verification -> allocation -> real scan persistence -> approval -> billing -> connector posting/reconciliation -> documents -> departure/returns.
+
+Deliver complete source files, migrations, cloud deployment configuration, .env.example without secrets, Windows connector packaging/install instructions, printer/scanner setup, demo seed data, import templates, test commands/results, backup/restore instructions and a concise operator runbook.
+
+If this chat cannot execute tools or connect hardware, produce complete runnable files/instructions in coherent stages and explicitly identify what was not executed. Do not invent deployments, passing tests, connected devices or created invoices.
+
+Provide setup steps for:
+1. Online app/database and authenticated MD access.
+2. Scanner workstation and A4 test labels.
+3. Connector on the separate Tally computer.
+4. Isolated test-company mapping and verified sample invoice.
+5. Full physical Case 2 trial.
+6. Load/failure testing and production-readiness review.
+
+Prepare a cloud-portable deployment. If no hosting account/credentials are available, complete the deployable application and clearly identify the final connection/deployment steps. Do not purchase resources or alter live accounting data by assumption.
+
+At every stage, distinguish implemented, tested, externally verified and pending. Finish with exact startup/deployment commands, working entry points and material remaining limitations. Persist until the agreed implementation is complete rather than stopping after a plan.
+
+23. PRIMARY REFERENCE STARTING POINTS
+
+Verify current official documentation, especially version-specific behaviour. Useful starting points:
+- https://help.tallysolutions.com/pre-requisites-for-integrations/
+- https://help.tallysolutions.com/sample-xml/
+- https://help.tallysolutions.com/understanding-tally-xml-tags/
+- https://retsol.co.in/barcode-scanners/bluetooth-scanner/d5015/
+
+Now begin the build using the confirmed decisions above.
+

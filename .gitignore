@@ -1,0 +1,15 @@
+node_modules/
+dist/
+bin/
+obj/
+.env
+.env.*
+!.env.example
+.vercel/
+artifacts/
+*.user
+*.log
+connector-journal/
+.local/
+test-results/
+*.tsbuildinfo

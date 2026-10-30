@@ -1,0 +1,6 @@
+group,cartons,sku,quantity,unit
+A,4,SND01,100,packets
+B,3,SND01,80,packets
+C,2,ROS01,100,packets
+D,1,SND01,40,packets
+D,1,ROS01,20,packets

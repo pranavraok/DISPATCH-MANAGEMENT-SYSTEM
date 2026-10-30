@@ -54,6 +54,7 @@ import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
 import { WorkSelector, ShipmentOverview } from "./work-ui";
 import { brand, plainLabel } from "./brand";
 import "./style.css";
+import "./clean.css";
 export type Context = {
   s: State;
   all: State;
@@ -133,10 +134,10 @@ export function Modal({
 const nav = [
   ["overview", "Home", LayoutDashboard],
   ["packing", "Packing", Package],
-  ["cartons", "Cartons & labels", ClipboardCheck],
-  ["trips", "Trips & customers", Truck],
-  ["loading", "Load cartons", ScanLine],
-  ["billing", "Billing & Tally", ReceiptText],
+  ["cartons", "Labels", ClipboardCheck],
+  ["trips", "Trips", Truck],
+  ["loading", "Loading", ScanLine],
+  ["billing", "Billing", ReceiptText],
   ["returns", "Returns", RotateCcw],
   ["reports", "Reports", Activity],
   ["setup", "Settings", Settings],
@@ -341,6 +342,7 @@ export function App() {
   };
   return (
     <div className="app">
+      {mobile && <button className="mobile-backdrop" aria-label="Close navigation" onClick={() => setMobile(false)} />}
       <aside className={mobile ? "sidebar open" : "sidebar"}>
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
           <div className="brand-mark">
@@ -350,14 +352,8 @@ export function App() {
             {brand.shortName}<small>GROUP OF INDUSTRIES</small>
           </div>
         </a>
-        <div className="workspace">
-          <span className="workspace-icon">EG</span>
-          <div>
-            {brand.business}<small>Dispatch</small>
-          </div>
-          <span className="workspace-dot" />
-        </div>
-        <nav>
+        <p className="sidebar-caption">Dispatch management</p>
+        <nav aria-label="Main navigation">
           {[
             ["Prepare", ["overview", "packing", "cartons"]],
             ["Dispatch", ["trips", "loading", "billing"]],
@@ -367,6 +363,7 @@ export function App() {
             <button
               key={id}
               className={page === id ? "active" : ""}
+              aria-current={page === id ? "page" : undefined}
               onClick={() => {
                 navigate(id);
                 setMobile(false);
@@ -379,29 +376,15 @@ export function App() {
           ))}</div>)}
         </nav>
         <div className="sidebar-bottom">
-          <div className="connector-mini">
-            <span className="dot amber" />
-            <div>
-              Tally connection
-              <small>
-                {s.connectors.some((c) => !c.revoked && c.lastSeen)
-                  ? "Diagnostics available"
-                  : "Setup required"}
-              </small>
-            </div>
-            <ArrowUpRight size={16} />
-          </div>
+          <div className="signed-in-user">{user.name}</div>
           <button
             className="profile"
+            aria-label={"Sign out " + user.name}
             onClick={() => void logout()}
             disabled={busy}
           >
-            <span className="avatar">{user.name[0]}</span>
-            <div>
-              {user.name}
-              <small>{user.roles.map(plainLabel).join(" · ")}</small>
-            </div>
             <LogOut size={15} />
+            Sign out
           </button>
         </div>
       </aside>
@@ -432,7 +415,6 @@ export function App() {
             >
               <RefreshCw size={17} />
             </button>
-            <span className="top-avatar">{user.name[0]}</span>
           </div>
         </header>
         <div className="content">
@@ -630,35 +612,24 @@ function Overview(ctx: Context) {
   return (
     <>
       <div className="page-heading">
-        <div><h1>Home</h1><p>{brand.name} · Dispatch</p></div>
+        <div><h1>Home</h1><p>Choose a task to get started.</p></div>
         <button className="primary" onClick={() => navigate("packing")}><Plus size={17} />Add packed cartons</button>
       </div>
-      <div className="metrics">
-        <Metric title="Total cartons" value={number(s.cartonTotal)} detail="Registered in this warehouse" icon={<Package />} />
-        <Metric title="Available cartons" value={number(count("Available"))} detail="Check labels before reserving" icon={<Box />} />
-        <Metric title="Loaded cartons" value={number(count("Loaded"))} detail="Waiting for departure" icon={<Truck />} />
-        <Metric title="Lists to approve" value={number(s.manifests.filter((m) => m.state === "Draft").length)} detail="Supervisor check needed" icon={<ClipboardCheck />} />
+      <div className="home-totals" aria-label="Work summary">
+        <div><strong>{number(s.manifests.filter((m) => m.state === "Draft").length)}</strong><span>Lists to approve</span></div>
+        <div><strong>{number(count("Available"))}</strong><span>Available cartons</span></div>
+        <div><strong>{number(count("Loaded"))}</strong><span>Loaded cartons</span></div>
       </div>
-      <section className="panel daily-steps">
-        <div className="panel-heading"><div><h2>What do you need to do?</h2><p>Follow these steps for each dispatch.</p></div></div>
-        <div className="quick-actions">
+      <nav className="task-flow" aria-label="Dispatch steps">
           {[
-            ["1", "Packing", "Add the cartons and what is inside.", "packing", Package],
-            ["2", "Labels", "Print, attach, and check each label.", "cartons", ScanLine],
-            ["3", "Trips & loading", "Choose a customer and vehicle, then scan the cartons.", "trips", Truck],
-            ["4", "Billing", "Check prices and approve the bill.", "billing", ReceiptText],
-          ].map(([n, title, detail, target, Icon]) => {
-            const I = Icon as typeof Package;
-            return <button key={String(n)} onClick={() => navigate(String(target))}><span className="step-count">{String(n)}</span><I size={22} /><strong>{String(title)}</strong><p>{String(detail)}</p><ArrowRight size={16} /></button>;
-          })}
-        </div>
-      </section>
+            ["Packing", "packing"], ["Labels", "cartons"], ["Trips", "trips"], ["Loading", "loading"], ["Billing", "billing"],
+          ].map(([title, target], i) => <button key={target} onClick={() => navigate(target)}><span>{i + 1}</span>{title}<ChevronRight size={14} /></button>)}
+      </nav>
       <ShipmentOverview ctx={ctx} />
-      <section className="panel">
-        <div className="panel-heading"><div><h2>Recent packing lists</h2><p>Check the contents before printing labels.</p></div><button className="text-link" onClick={() => navigate("packing")}>View all <ArrowRight size={15} /></button></div>
+      <details className="panel supporting-panel">
+        <summary>Recent packing lists <span>{s.manifests.length}</span></summary>
         {s.manifests.length ? <div className="table-wrap"><table><thead><tr><th>PACKING LIST</th><th>CARTONS</th><th>STATUS</th><th /></tr></thead><tbody>{s.manifests.slice(0, 4).map((m) => <tr key={m.id}><td><strong>{m.name}</strong></td><td>{parse<Group[]>(m.groups).reduce((n, g) => n + g.count, 0)}</td><td><Badge tone={m.state === "Approved" ? "sage" : "amber"}>{m.state === "Draft" ? "Needs approval" : m.state}</Badge></td><td><button className="text-link" onClick={() => navigate("packing")} aria-label={"Open " + m.name}>Open <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div> : <Empty title="No packing lists yet" detail="Add the packed cartons to get started." />}
-      </section>
-      <div className="notice amber"><ReceiptText size={18} /><div><strong>Tally setup is still needed.</strong> Packing and loading are available. Sending invoices to Tally stays off until your accountant checks the connection. <button className="text-link" onClick={() => navigate("setup")}>Open settings <ArrowRight size={14} /></button></div></div>
+      </details>
     </>
   );
 }

@@ -89,3 +89,9 @@ Validation: 41 frontend tests passed (including 10 grouping-domain and 8 mounted
 Browser check against the combined local production build passed: Home displayed two fictional vehicle trips and separate customer shipments; Labels showed only the selected shipment’s cartons; switching customer cleared earlier label selections; Billing retained the selected shipment; Loading preselected its customer/vehicle and preserved that work on refresh. No scan or accounting operation was performed during the browser check.
 
 The carton reservation dialog also groups eligible cartons by packing list. Operators may choose a packing list to retrieve its carton pages independently of the initial dashboard window, select a whole eligible group, and see the target vehicle. Billing review and carton detail dialogs identify their shipment/packing context. Mounted tests cover grouped reservation and fetching a packing list whose cartons were absent from the initial list.
+
+## Cleaner daily screens, 30 October 2026
+
+The home screen uses a compact summary and short task links. Sidebar labels are shorter, the shared work selector is smaller, and multiple record groups or vehicle trips start collapsed. Opening a group shows its details; a single group opens automatically. Carton search expands matching groups. Home gives each shipment one Open shipment action, while Trips keeps loading actions visible and places labels, documents and carton adjustments under More actions. Printer dimensions and completed print history are expandable. Settings omit the work filter because they apply company-wide.
+
+All 41 frontend tests, the TypeScript check and the Vite production build passed using an isolated copy of the current source and the pinned dependency cache. Browser checks with fictional fixtures covered shipment selection from Home, Labels and Trips, collapsed groups, and narrow-screen navigation. No operational records, scan results or accounting data were changed.

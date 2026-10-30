@@ -31,12 +31,22 @@ async function choose(id: string) {
   await waitFor(() => expect(screen.queryByText("Opening selected work…")).toBeNull());
 }
 
+function navigate(label: string) {
+  fireEvent.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("button", { name: label }));
+}
+
 describe("shipment grouping across sidebar pages", () => {
-  it("shows separate carton groups for different shipments and unassigned packing lists", async () => {
+  it("keeps carton groups compact and opens the shipment the operator chooses", async () => {
     render(<App />);
     await screen.findByText("CT-ONE");
-    expect(screen.getByRole("checkbox", { name: /Select shown cartons in.*SHIP-A/ })).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: /Select shown cartons in.*SHIP-C/ })).toBeTruthy();
+    const first = screen.getByLabelText(/Select shown cartons in.*SHIP-A/).closest("details")!;
+    const other = screen.getByLabelText(/Select shown cartons in.*SHIP-C/).closest("details")!;
+    expect(first.open).toBe(false);
+    expect(other.open).toBe(false);
+    fireEvent.click(first.querySelector("summary")!);
+    expect(within(first).getByRole("checkbox", { name: /Select shown cartons in.*SHIP-A/ })).toBeTruthy();
+    fireEvent.click(other.querySelector("summary")!);
+    expect(within(other).getByRole("checkbox", { name: /Select shown cartons in.*SHIP-C/ })).toBeTruthy();
     expect(screen.getByText("CT-STOCK")).toBeTruthy();
   });
 
@@ -47,10 +57,10 @@ describe("shipment grouping across sidebar pages", () => {
     await screen.findByText("CT-TWO");
     expect(screen.queryByText("CT-ONE")).toBeNull();
     expect(screen.queryByText("CT-THREE")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Billing & Tally" }));
+    navigate("Billing");
     await screen.findByText("JOB-SHIP-B");
     expect(screen.queryByText("JOB-SHIP-A")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Load cartons" }));
+    navigate("Loading");
     await screen.findByLabelText("Customer shipment");
     expect((screen.getByLabelText("Customer shipment") as HTMLSelectElement).value).toBe("SHIP-B");
     expect(new URLSearchParams(window.location.search).get("work")).toBe("shipment:SHIP-B");
@@ -106,8 +116,10 @@ describe("shipment grouping across sidebar pages", () => {
     await screen.findByText("CT-ONE");
     fireEvent.change(screen.getByLabelText("Show work"), { target: { value: "trip:TRIP-A" } });
     await waitFor(() => expect(screen.queryByText("Opening selected work…")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Trips & customers" }));
+    navigate("Trips");
     const trip = (await screen.findByRole("heading", { name: "KA-01-ALPHA" })).closest("section")!;
+    const tripDetails = trip.querySelector("details")!;
+    if (!tripDetails.open) fireEvent.click(tripDetails.querySelector("summary")!);
     fireEvent.click(within(trip).getByRole("button", { name: "Add customer & cartons" }));
     const dialog = screen.getByRole("dialog", { name: "Choose cartons for a customer" });
     expect(within(dialog).getByText(/^Packing: Packing Alpha/)).toBeTruthy();
@@ -130,8 +142,10 @@ describe("shipment grouping across sidebar pages", () => {
     });
     render(<App />);
     await screen.findByText("CT-ONE");
-    fireEvent.click(screen.getByRole("button", { name: "Trips & customers" }));
+    navigate("Trips");
     const trip = (await screen.findByRole("heading", { name: "KA-01-ALPHA" })).closest("section")!;
+    const tripDetails = trip.querySelector("details")!;
+    if (!tripDetails.open) fireEvent.click(tripDetails.querySelector("summary")!);
     fireEvent.click(within(trip).getByRole("button", { name: "Add customer & cartons" }));
     const dialog = screen.getByRole("dialog", { name: "Choose cartons for a customer" });
     expect(within(dialog).queryByText("CT-STOCK")).toBeNull();

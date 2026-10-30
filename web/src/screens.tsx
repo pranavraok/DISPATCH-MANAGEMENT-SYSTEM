@@ -99,10 +99,6 @@ export function PackingScreen(ctx: Context) {
           </div>
         }
       />
-      <div className="notice">
-        <ShieldCheck size={18} />
-        Use a group for cartons with the same contents. Each carton gets its own ID after approval.
-      </div>
       <section className="panel">
         {s.manifests.length ? (
           <div className="table-wrap">
@@ -683,10 +679,7 @@ export function CartonScreen(ctx: Context) {
           </div>
         }
       />
-      <div className="notice">
-        A4 trial layout: 90 × 50 mm labels, 34 mm QR, 2 columns × 5 rows. Print
-        at 100% / actual size. Test dimensions on your printer first.
-      </div>
+      <details className="inline-help"><summary>Printer setup & label size</summary><p>A4 trial layout: 90 × 50 mm labels, 34 mm QR, 2 columns × 5 rows. Print at 100% / actual size. Test dimensions on your printer first.</p></details>
       {error && <div className="notice error">{error}</div>}
       {ctx.work.kind === "all" && s.cartons.length < s.cartonTotal && <div className="notice amber">Choose a packing list or shipment above to load its carton details. The all-work list shows the first page.</div>}
       <section className="panel">
@@ -724,7 +717,7 @@ export function CartonScreen(ctx: Context) {
         </div>
         {rows.length ? (
           <div className="table-wrap">
-            <GroupedRecords ctx={ctx} rows={rows} type="carton">{(records, group) => (<table>
+            <GroupedRecords ctx={ctx} rows={rows} type="carton" expand={!!search.trim()}>{(records, group) => (<table>
               <thead>
                 <tr>
                   <th>
@@ -898,10 +891,8 @@ export function CartonScreen(ctx: Context) {
         </form>
       </section>
       {s.labels.length > 0 && (
-        <section className="panel">
-          <div className="panel-heading">
-            <h2>Label print jobs</h2>
-          </div>
+        <details className="panel supporting-panel" open={s.labels.some((j) => j.state !== "OperatorConfirmed")}>
+          <summary>Label print jobs <span>{s.labels.length}</span></summary>
           <GroupedRecords ctx={ctx} rows={s.labels} type="label">{(records) => (<table>
             <thead>
               <tr>
@@ -950,7 +941,7 @@ export function CartonScreen(ctx: Context) {
               ))}
             </tbody>
           </table>)}</GroupedRecords>
-        </section>
+        </details>
       )}
       {history && (
         <Modal
@@ -1030,7 +1021,8 @@ export function TripsScreen(ctx: Context) {
       ) : (
         s.trips.map((t) => (
           <section className="panel trip-card" key={t.id}>
-            <div className="panel-heading">
+            <details className="trip-foldout" name="vehicle-trips" open={s.trips.length === 1}>
+            <summary>
               <div className="trip-title">
                 <span className="trip-icon">
                   <Truck size={25} />
@@ -1038,17 +1030,19 @@ export function TripsScreen(ctx: Context) {
                 <div>
                   <h2>{t.vehicle}</h2>
                   <p>
-                    {t.driver} · {t.transporter || "Transporter not set"} ·{" "}
-                    {t.id}
+                    {t.driver} · {t.id}
+                    {t.transporter && <small>{t.transporter}</small>}
                   </p>
                 </div>
                 <Badge tone={t.state === "Open" ? "sage" : "neutral"}>
                   {t.state}
                 </Badge>
               </div>
-              <div className="button-row">
+              <span className="record-count">{s.shipments.filter((sh) => sh.tripId === t.id).length} {s.shipments.filter((sh) => sh.tripId === t.id).length === 1 ? "shipment" : "shipments"}</span>
+            </summary>
+              <div className="trip-actions button-row">
                 <button
-                  className="secondary small"
+                  className="primary small"
                   disabled={
                     t.state !== "Open" || !may(ctx, "DispatchSupervisor")
                   }
@@ -1060,9 +1054,9 @@ export function TripsScreen(ctx: Context) {
                 >
                   Add customer & cartons
                 </button>
-                <button className="secondary small" onClick={() => ctx.selectWork({ kind: "trip", id: t.id })}>Show all customers on this trip</button>
+                {ctx.work.kind !== "trip" && <button className="text-link" onClick={() => ctx.selectWork({ kind: "trip", id: t.id })}>Show this trip</button>}
                 <button
-                  className="primary small"
+                  className="secondary small"
                   disabled={
                     t.state !== "Open" || !may(ctx, "DispatchSupervisor")
                   }
@@ -1081,7 +1075,6 @@ export function TripsScreen(ctx: Context) {
                   Record departure
                 </button>
               </div>
-            </div>
             {s.shipments
               .filter((x) => x.tripId === t.id)
               .map((sh) => {
@@ -1110,12 +1103,12 @@ export function TripsScreen(ctx: Context) {
                     <div className="button-row">
                       <button
                         className="secondary small"
-                        onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("loading"); }}
+                        onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate(sh.loadApproved ? "billing" : "loading"); }}
                       >
-                        <ScanLine size={15} />
-                        Load
+                        {!sh.loadApproved && <ScanLine size={15} />}
+                        {sh.loadApproved ? "Review billing" : "Load cartons"}
                       </button>
-                      <button
+                      {!sh.loadApproved && <button
                         className="secondary small"
                         disabled={
                           sh.loadApproved || !may(ctx, "DispatchSupervisor")
@@ -1133,10 +1126,14 @@ export function TripsScreen(ctx: Context) {
                         }}
                       >
                         Approve load
-                      </button>
-                      <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("cartons"); }}>Labels</button>
-                      <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("billing"); }}>Billing</button>
-                      <button
+                      </button>}
+                    </div>
+                    <details className="shipment-options">
+                      <summary>More actions</summary>
+                      <div className="shipment-option-links">
+                        <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("cartons"); }}>Labels</button>
+                        <button className="text-link" onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate("billing"); }}>Billing</button>
+                        <button
                         className="text-link"
                         onClick={async () => {
                           try {
@@ -1155,7 +1152,7 @@ export function TripsScreen(ctx: Context) {
                       >
                         Packing list
                       </button>
-                    </div>
+                      </div>
                     <div className="shipment-detail">
                       {a
                         .filter((x) => x.state === "Loaded")
@@ -1201,6 +1198,7 @@ export function TripsScreen(ctx: Context) {
                           </button>
                         )}
                     </div>
+                    </details>
                   </div>
                 );
               })}
@@ -1209,6 +1207,7 @@ export function TripsScreen(ctx: Context) {
                 Add the first customer shipment to this vehicle.
               </p>
             )}
+            </details>
           </section>
         ))
       )}

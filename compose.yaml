@@ -21,7 +21,7 @@ services:
     environment:
       ConnectionStrings__Dispatch: Host=db;Database=dispatch;Username=dispatch;Password=${DB_PASSWORD}
       MigrateOnStart: "true"
-      BootstrapEmail: ${BOOTSTRAP_EMAIL:-admin@kriyantha.test}
+      BootstrapEmail: ${BOOTSTRAP_EMAIL:-admin@electrogroup.test}
       BootstrapPassword: ${BOOTSTRAP_PASSWORD:?Set an initial administrator password in .env}
       BootstrapMdPassword: ${BOOTSTRAP_MD_PASSWORD:?Set a different MD password in .env}
       ASPNETCORE_ENVIRONMENT: Production

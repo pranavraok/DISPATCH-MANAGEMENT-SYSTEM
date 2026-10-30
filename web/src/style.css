@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;750;800&display=swap");
 :root {
   font-family: "DM Sans", sans-serif;
   color: #21352e;
@@ -78,7 +77,7 @@ p {
 h1,
 h2,
 h3 {
-  font-family: "Manrope", sans-serif;
+  font-family: "Segoe UI", Arial, sans-serif;
 }
 h1 {
   font-size: 32px;
@@ -141,7 +140,7 @@ pre {
   gap: 10px;
   text-decoration: none;
   color: inherit;
-  font-family: "Manrope", sans-serif;
+  font-family: "Segoe UI", Arial, sans-serif;
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 2px;
@@ -1850,3 +1849,46 @@ details pre {
     font-size: 55px;
   }
 }
+
+/* Simple, readable daily screens. */
+:root { font-family: "Segoe UI", Arial, sans-serif; --muted: #56665d; font-size: 14px; }
+h1,h2,h3,.brand { font-family: inherit; }
+h1 { font-size: 28px; letter-spacing: -.5px; }
+.eyebrow,.heading-dot { display: none; }
+.brand { letter-spacing: 1px; font-size: 21px; }
+.brand small { letter-spacing: 1px; font-size: 9px; }
+.brand-mark { display: grid; place-items: center; width: 36px; height: 38px; border: 1px solid #88a995; border-radius: 6px; font-size: 27px; padding: 0; letter-spacing: 0; }
+.workspace { margin-top: 24px; }
+.sidebar { overflow-y: auto; }
+.sidebar nav button { font-size: 13px; }
+.sidebar-bottom { padding-top: 28px; }
+.primary,.secondary,.field > span,table,.page-heading p,.panel-heading p,.metric-top,.metric p { font-size: 13px; }
+.badge,.text-link,.notice,small { font-size: 12px; }
+.quick-actions { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; padding: 0 22px 22px; }
+.quick-actions > button { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; text-align: left; padding: 20px; background: #fafcf9; color: var(--forest); border: 1px solid var(--line); border-radius: 8px; }
+.quick-actions > button:hover { background: #eef5e8; }
+.quick-actions strong { font-size: 16px; }
+.quick-actions p { font-size: 13px; color: #53665a; }
+.quick-actions > button > svg:last-child { margin-top: auto; }
+.step-count { position: absolute; top: 18px; right: 18px; font-size: 13px; color: #526b5b; }
+.login-story h1 { font-size: 48px; letter-spacing: -1px; }
+.login-story p { color: #d2dfd5; }
+.login-note p { color: #56665d; font-size: 12px; }
+.login-divider { font-size: 10px; color: #52624c; letter-spacing: .7px; }
+.return-quantities { margin-top: 20px; }
+.return-quantities > p { margin-bottom: 16px; }
+input:focus-visible,button:focus-visible,a:focus-visible,select:focus-visible { outline: 3px solid #7eaa67; outline-offset: 3px; }
+@media(max-width: 1100px) { .quick-actions { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width: 760px) { .quick-actions { grid-template-columns: 1fr; padding: 0 16px 16px; gap: 10px; } .quick-actions > button { padding: 16px; gap: 7px; } .quick-actions > button > svg:first-of-type { display: none; } .quick-actions > button > svg:last-child { position: absolute; right: 16px; bottom: 16px; } .quick-actions p { padding-right: 25px; } .metric-top { font-size: 12px; } .brand { font-size: 20px; } .login-story h1 { font-size: 34px; } .login-story > small { display: block; font-size: 12px; } .login-story { gap: 22px; } .sample-banner { font-size: 12px; } }
+
+.metric-value,.load-big { font-family: inherit; }
+.sidebar { padding-top: 24px; }
+.sidebar .workspace { margin-top: 20px; padding: 12px 10px; }
+.nav-label { margin-top: 22px; }
+.sidebar nav { gap: 3px; }
+.sidebar nav button { padding-top: 10px; padding-bottom: 10px; }
+
+.carton-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 20px 0; }
+.carton-facts > div { padding: 10px; background: #f4f7f1; border-radius: 5px; }
+.carton-facts dt { color: var(--muted); font-size: 12px; }
+.carton-facts dd { margin: 5px 0 0; font-weight: 600; }

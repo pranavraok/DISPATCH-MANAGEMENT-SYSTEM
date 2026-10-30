@@ -8,7 +8,7 @@ The repository contains a multi-stage Dockerfile, Docker Compose configuration a
 
 Create environment variables on the hosting project: DATABASE_URL (private TLS PostgreSQL URI), BootstrapPassword (unique 12+ characters), BootstrapMdPassword (a different unique password), MigrateOnStart=true for the initial release. After successful bootstrap, disable automatic production seeding and run controlled migrations on later releases. Keep the app and API under one HTTPS origin so session cookies and CSRF checks remain correct. The container listens on 80 on Vercel, 8080 on other hosts.
 
-Admin email defaults to admin@kriyantha.test. MD email defaults to md@kriyantha.test. Initial passwords are supplied through private environment configuration. Create named operator accounts in Settings. MD has server-enforced read-only access and a responsive dashboard. Do not share the administrator account with loaders.
+Admin email defaults to admin@electrogroup.test. MD email defaults to md@electrogroup.test. Initial passwords are supplied through private environment configuration. Create named operator accounts in Settings. MD has server-enforced read-only access and a responsive dashboard. Do not share the administrator account with loaders.
 
 ## 2. Local startup on Windows
 

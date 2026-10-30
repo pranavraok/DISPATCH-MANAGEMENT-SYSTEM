@@ -3,13 +3,13 @@ export function sampleState(): State {
   return {
     company: {
       id: "demo",
-      name: "KR Vishwanath Agarbatti Works",
+      name: "Electro Group of Industries",
       environment: "Read-only sample",
     },
-    warehouses: [{ id: "main", name: "Timber Layout" }],
+    warehouses: [{ id: "main", name: "Main warehouse" }],
     products: [
-      { id: "sandal", sku: "SND01", name: "Sandal", unit: "packets" },
-      { id: "rose", sku: "ROS01", name: "Rose", unit: "packets" },
+      { id: "sandal", sku: "SND01", name: "Sample item A", unit: "packets" },
+      { id: "rose", sku: "ROS01", name: "Sample item B", unit: "packets" },
     ],
     customers: [
       { id: "ravi", name: "Ravi Stores · Demo", address: "Mysuru, Karnataka" },

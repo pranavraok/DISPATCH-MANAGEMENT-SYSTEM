@@ -10,9 +10,11 @@ import {
 import { type Context, Badge, Field, Empty } from "./main";
 import { date, totals, type Row } from "./domain";
 import * as api from "./api";
+import { plainLabel } from "./brand";
 type Result = { outcome: string; message: string; id?: string };
 type Pending = { envelope: api.Envelope; shipmentId: string; at: string };
-const pendingKey = "kriyantha-uncertain-scan-v1";
+const pendingKey = "electro-group-uncertain-scan-v1";
+const legacyPendingKey = "kriyantha-uncertain-scan-v1";
 export function LoadingScreen(ctx: Context) {
   const { s, sample, run, refresh } = ctx;
   const [shipmentId, setShipmentId] = useState(""),
@@ -26,7 +28,8 @@ export function LoadingScreen(ctx: Context) {
     [events, setEvents] = useState<Row[]>([]),
     [pending, setPending] = useState<Pending | null>(() => {
       try {
-        return JSON.parse(localStorage.getItem(pendingKey) ?? "null");
+        const saved = localStorage.getItem(pendingKey) ?? localStorage.getItem(legacyPendingKey);
+        return JSON.parse(saved ?? "null");
       } catch {
         return null;
       }
@@ -61,7 +64,7 @@ export function LoadingScreen(ctx: Context) {
   useEffect(() => {
     const warnPausedInput = (event: KeyboardEvent) => {
       if (started && (pending || !focused) && (event.key === 'Enter' || event.key.length === 1) && !event.ctrlKey && !event.metaKey) {
-        setError('Input arrived while loading was paused or scan focus was lost. This input was not accepted. Keep the carton aside and scan again only when the field is ready.');
+        setError('Scan not saved. Loading is paused or the scan box is not selected. Keep the carton aside and scan again when ready.');
       }
     };
     window.addEventListener('keydown', warnPausedInput, true);
@@ -96,7 +99,7 @@ export function LoadingScreen(ctx: Context) {
     try {
       if (pending)
         throw Error(
-          "Resolve the previous uncertain scan before starting or changing shipment.",
+          "Check the previous scan result before starting or changing the shipment.",
         );
       if (sample) throw Error("The read-only sample cannot accept scans.");
       if (!shipmentId) throw Error("Select a customer shipment.");
@@ -113,7 +116,7 @@ export function LoadingScreen(ctx: Context) {
   }
   function store(p: Pending | null) {
     if (p) localStorage.setItem(pendingKey, JSON.stringify(p));
-    else localStorage.removeItem(pendingKey);
+    else { localStorage.removeItem(pendingKey); localStorage.removeItem(legacyPendingKey); }
     setPending(p);
   }
   async function submit(qr: string) {
@@ -141,7 +144,7 @@ export function LoadingScreen(ctx: Context) {
       return;
     }
     if (qr.length > 160) {
-      setResult({ outcome: "Rejected", message: "Payload is too long." });
+      setResult({ outcome: "Rejected", message: "This QR code is too long." });
       sound("Rejected");
       return;
     }
@@ -169,12 +172,12 @@ export function LoadingScreen(ctx: Context) {
         [{ ...r, at: new Date().toISOString() }, ...prev].slice(0, 12),
       );
       sound(r.outcome);
-      await refresh().catch(() => setError("The server confirmed this result. Totals could not refresh; reload saved state before continuing."));
+      await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
       setResult({
         outcome: "Pending",
         message:
-          "Outcome unknown. Keep this carton aside and reconcile its request ID.",
+          "Result not confirmed. Keep this carton aside and check the saved result below.",
       });
       sound("Pending");
       setError((e as Error).message);
@@ -194,11 +197,11 @@ export function LoadingScreen(ctx: Context) {
         [{ ...r, at: new Date().toISOString() }, ...prev].slice(0, 12),
       );
       sound(r.outcome);
-      await refresh().catch(() => setError("The server confirmed this result. Totals could not refresh; reload saved state before continuing."));
+      await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
       setError(
         (e as Error).message +
-          " Use Retry same request if the server has no saved outcome.",
+          " Use Try this scan again if no result was saved.",
       );
     }
   }
@@ -210,7 +213,7 @@ export function LoadingScreen(ctx: Context) {
       store(null);
       setResult(r);
       sound(r.outcome);
-      await refresh().catch(() => setError("The server confirmed this result. Totals could not refresh; reload saved state before continuing."));
+      await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -223,9 +226,9 @@ export function LoadingScreen(ctx: Context) {
         <div>
           <div className="eyebrow">LIVE CARTON VERIFICATION</div>
           <h1>
-            Loading station<span className="heading-dot">.</span>
+            Load cartons<span className="heading-dot">.</span>
           </h1>
-          <p>One selected shipment. Every carton confirmed.</p>
+          <p>Choose the customer shipment, start loading, then scan one carton at a time.</p>
         </div>
         <Badge tone={online ? "sage" : "red"}>
           {online ? "Browser online" : "Connection unavailable"}
@@ -233,9 +236,7 @@ export function LoadingScreen(ctx: Context) {
       </div>
       <div className="notice amber">
         <AlertTriangle size={18} />
-        Use the D-5015 in live HID mode with Enter. Stored scanner replay
-        requires supervised reconciliation. Its decode beep does not mean a
-        carton was accepted.
+        Use the D-5015 scanner in live mode with Enter. Wait for Loaded on this screen before moving to the next carton. Ask a supervisor before using scans saved in scanner memory.
       </div>
       <section className="panel station-context">
         <Field label="Customer shipment">
@@ -273,7 +274,7 @@ export function LoadingScreen(ctx: Context) {
           onClick={start}
         >
           <Volume2 size={18} />
-          Start Loading & Enable Sound
+          Start loading & turn on sound
         </button>
       </section>
       <div className="scanner-layout">
@@ -286,12 +287,12 @@ export function LoadingScreen(ctx: Context) {
             />
             <strong>
               {pending
-                ? "Paused: uncertain scan"
+                ? "Paused: check last scan"
                 : started
                   ? focused
                     ? "Scanner field ready"
-                    : "Click scan field to restore focus"
-                  : "Start a loading session"}
+                    : "Click the scan box to continue"
+                  : "Choose a shipment, then start loading"}
             </strong>
             <button
               className="text-link"
@@ -310,7 +311,7 @@ export function LoadingScreen(ctx: Context) {
             aria-live="assertive"
           >
             <ScanLine size={48} />
-            <h2>{result?.outcome ?? "Ready when you are"}</h2>
+            <h2>{result ? plainLabel(result.outcome) : "Ready to scan"}</h2>
             <p>
               {result?.message ??
                 "Select your customer shipment and start loading."}
@@ -339,7 +340,7 @@ export function LoadingScreen(ctx: Context) {
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onChange={(e) => setScan(e.target.value)}
-              placeholder="Keep scan focus here…"
+              placeholder="Click here, then scan a carton…"
               onPaste={(e) => {
                 e.preventDefault();
                 setError(
@@ -348,8 +349,7 @@ export function LoadingScreen(ctx: Context) {
               }}
             />
             <div className="scan-hint">
-              Enter submits · Accepted sound plays only after commit · Pending
-              scans pause input
+              Enter saves the scan. Wait for Loaded on screen and the PC sound.
             </div>
           </form>
           {error && (
@@ -368,10 +368,10 @@ export function LoadingScreen(ctx: Context) {
               <div className="button-row">
                 <button className="secondary" onClick={recover}>
                   <RefreshCw size={16} />
-                  Reconcile saved outcome
+                  Check saved result
                 </button>
                 <button className="secondary" onClick={retry}>
-                  Retry same request ID
+                  Try this scan again
                 </button>
               </div>
             </div>
@@ -392,7 +392,7 @@ export function LoadingScreen(ctx: Context) {
             {loaded.length}
             <span>/ {allocations.length}</span>
           </div>
-          <p>cartons accepted by the server</p>
+          <p>cartons loaded and saved</p>
           <div className="progress">
             <span
               style={{
@@ -414,8 +414,7 @@ export function LoadingScreen(ctx: Context) {
             ))}
           </div>
           <div className="notice">
-            Totals shown cover carton details on the current page. The server
-            validates the complete shipment for approval.
+            Item totals cover cartons shown on this page. Approval checks the full shipment.
           </div>
           <div className="tally-meta">
             <span>Operator</span>
@@ -435,7 +434,7 @@ export function LoadingScreen(ctx: Context) {
         <div className="panel-heading">
           <div>
             <h2>Recent results</h2>
-            <p>Saved history remains available under Reports & audit.</p>
+            <p>See Reports for the full scan history.</p>
           </div>
         </div>
         {events.length ? (
@@ -460,7 +459,7 @@ export function LoadingScreen(ctx: Context) {
                             : "red"
                       }
                     >
-                      {e.outcome}
+                      {plainLabel(e.outcome)}
                     </Badge>
                   </td>
                   <td>
@@ -475,7 +474,7 @@ export function LoadingScreen(ctx: Context) {
         ) : (
           <Empty
             title="No scans in this view"
-            detail="Accepted, duplicate and rejected scans will appear here."
+            detail="Each scan result will appear here."
           />
         )}
       </section>

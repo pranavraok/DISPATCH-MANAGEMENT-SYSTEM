@@ -71,29 +71,29 @@ public sealed class Operations(DispatchDb db)
                     if (input.Id != null) { m = await Get<Manifest>(input.Id); Check(m.State == "Draft", "Approved manifests are immutable."); Check(m.Version == input.Version, "Another operator changed this draft. Reload before saving.", 409); m.Version++; }
                     else { m = new Manifest { CompanyId = company, Id = NewId("PK-") }; db.Manifests.Add(m); }
                     m.Name = input.Name; m.WarehouseId = input.WarehouseId; m.CustomerId = input.CustomerId; m.Notes = input.Notes; m.Groups = Json.Write(input.Groups);
-                    return new { id = m.Id, version = m.Version, message = "Draft saved. Physical approval is still required." };
+                    return new { id = m.Id, version = m.Version, message = "Draft saved. A supervisor must check the packed cartons before approval." };
                 }
             case "approveManifest":
                 {
                     Permissions.Require(actor, "PackingSupervisor"); Check(Flag(d, "physicalConfirmed"), "Confirm the physical group markings and contents.");
-                    var m = await Get<Manifest>(Str(d, "id")); if (m.State == "Approved") return new { id = m.Id, message = "Manifest was already approved. No new cartons created." };
+                    var m = await Get<Manifest>(Str(d, "id")); if (m.State == "Approved") return new { id = m.Id, message = "This packing list is already approved. No extra cartons were created." };
                     Check(m.State == "Draft", "Manifest cannot be approved in this state.");
                     var groups = Json.Read<PackedGroup[]>(m.Groups); await ValidateGroups(groups);
                     foreach (var group in groups) for (var i = 0; i < group.Count; i++) db.Cartons.Add(new Carton { Id = NewId("CT-"), CompanyId = company, ManifestId = m.Id, WarehouseId = m.WarehouseId, CustomerId = m.CustomerId, Marking = group.Marking, Lines = Json.Write(await Normalize(group.Lines)) });
                     m.State = "Approved"; m.ApprovedBy = actor.Id; m.ApprovedAt = DateTimeOffset.UtcNow; m.Version++;
-                    return new { id = m.Id, count = groups.Sum(g => g.Count), message = "Unique cartons created. Print, attach and verify their labels." };
+                    return new { id = m.Id, count = groups.Sum(g => g.Count), message = "Cartons created. Print the labels, attach them, then check each carton." };
                 }
             case "createLabels":
                 {
                     Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); RequireReason(d); var cartons = await Selected(d);
                     Check(cartons.All(c => c.State is "Available" or "Reserved"), "Retired, loaded and dispatched labels cannot be reissued through the packing screen.");
                     var label = new LabelJob { CompanyId = company, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = $"K1|{company}|{c.Id}|{c.Revision}" })) }; db.Labels.Add(label);
-                    return new { id = label.Id, cartons, message = "Label job prepared. A PDF download is not proof of printing or attachment." };
+                    return new { id = label.Id, cartons, message = "Labels are ready. Print them and attach them to the matching cartons." };
                 }
             case "labelStatus":
                 {
                     Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); var job = await Get<LabelJob>(Str(d, "id")); var state = Str(d, "state");
-                    Check(new[] { "Submitted", "Failed", "Unknown", "OperatorConfirmed" }.Contains(state), "Invalid print state."); RequireReason(d); job.State = state; return new { id = job.Id, message = "Print status recorded. Carton verification remains separate." };
+                    Check(new[] { "Submitted", "Failed", "Unknown", "OperatorConfirmed" }.Contains(state), "Invalid print state."); RequireReason(d); job.State = state; return new { id = job.Id, message = "Print status saved. The cartons still need to be checked." };
                 }
             case "attachLabels":
                 {
@@ -105,7 +105,7 @@ public sealed class Operations(DispatchDb db)
                 {
                     Permissions.Require(actor, "PackingSupervisor"); Check(Flag(d, "physicalConfirmed"), "Confirm physical identity and actual contents."); var c = await ResolveQr(Str(d, "qr"));
                     Check(c.Attached && c.State == "Available" && !c.Held, "Attach the current label and clear holds before verification."); c.Verified = true; c.VerifiedBy = actor.Id; c.VerifiedAt = DateTimeOffset.UtcNow;
-                    return new { id = c.Id, message = "Identity and contents verified." };
+                    return new { id = c.Id, message = "Carton label and contents checked." };
                 }
             case "holdCarton":
                 {
@@ -113,7 +113,7 @@ public sealed class Operations(DispatchDb db)
                 }
             case "reviseCarton":
                 {
-                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); var c = await Get<Carton>(Str(d, "id")); Check(c.State == "Available", "Only unloaded, unallocated cartons can be revised."); var lines = Json.Read<ContentLine[]>(d.GetProperty("lines")); var previous = new { c.Revision, c.Lines }; c.Lines = Json.Write(await Normalize(lines)); c.Revision++; c.Verified = false; c.Attached = false; c.VerifiedAt = null; c.VerifiedBy = null; Audit("contentRevision", c.Id, new { previous, next = c.Lines, reason = Str(d, "reason") }); return new { id = c.Id, revision = c.Revision, message = "New label revision required. Previous QR is obsolete." };
+                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); var c = await Get<Carton>(Str(d, "id")); Check(c.State == "Available", "Only unloaded, unallocated cartons can be revised."); var lines = Json.Read<ContentLine[]>(d.GetProperty("lines")); var previous = new { c.Revision, c.Lines }; c.Lines = Json.Write(await Normalize(lines)); c.Revision++; c.Verified = false; c.Attached = false; c.VerifiedAt = null; c.VerifiedBy = null; Audit("contentRevision", c.Id, new { previous, next = c.Lines, reason = Str(d, "reason") }); return new { id = c.Id, revision = c.Revision, message = "Print a new label and check the carton again. The old QR can no longer be used." };
                 }
             case "repack":
                 {
@@ -143,7 +143,7 @@ public sealed class Operations(DispatchDb db)
                 {
                     Permissions.Require(actor, "Loader", "DispatchSupervisor"); var s = await Get<Shipment>(Str(d, "shipmentId")); var trip = await Get<Trip>(s.TripId); Check(!s.LoadApproved && trip.State == "Open" && s.State is "Allocated" or "Loading", "Shipment is not open for loading.");
                     var station = Str(d, "station"); Check(station.Length is >= 2 and <= 80, "A station name is required."); var other = await db.LoadingSessions.Where(x => x.CompanyId == company && x.Station == station && x.Active).ToListAsync(); other.ForEach(x => x.Active = false); await db.SaveChangesAsync();
-                    var session = new LoadingSession { CompanyId = company, UserId = actor.Id, ShipmentId = s.Id, TripId = s.TripId, Station = station }; db.LoadingSessions.Add(session); s.State = "Loading"; return new { id = session.Id, message = "Loading started. Only server-confirmed scans count." };
+                    var session = new LoadingSession { CompanyId = company, UserId = actor.Id, ShipmentId = s.Id, TripId = s.TripId, Station = station }; db.LoadingSessions.Add(session); s.State = "Loading"; return new { id = session.Id, message = "Loading started. Wait for Loaded on screen after each scan." };
                 }
             case "scan":
                 {
@@ -153,23 +153,23 @@ public sealed class Operations(DispatchDb db)
                     var s = await Get<Shipment>(session.ShipmentId); Check(!s.LoadApproved && s.State == "Loading", "Shipment is closed for loading."); var trip = await Get<Trip>(s.TripId); Check(trip.State == "Open" && trip.Id == session.TripId, "Trip context changed.");
                     Carton c; try { c = await ResolveQr(Str(d, "qr")); } catch (RuleException e) { return new { outcome = "Rejected", message = e.Message }; }
                     var allocation = await db.Allocations.SingleOrDefaultAsync(x => x.CompanyId == company && x.CartonId == c.Id && x.Active);
-                    if (allocation == null || allocation.ShipmentId != s.Id || c.WarehouseId != s.WarehouseId) return new { outcome = "Rejected", message = "Carton is not allocated to this customer shipment." };
+                    if (allocation == null || allocation.ShipmentId != s.Id || c.WarehouseId != s.WarehouseId) return new { outcome = "Rejected", message = "This carton is not reserved for the selected customer." };
                     if (allocation.State == "Loaded") return new { outcome = "Duplicate", id = c.Id, message = "Already loaded. Totals unchanged." };
-                    if (!c.Verified || !c.Attached || c.Held || c.State != "Reserved" || allocation.State != "Reserved") return new { outcome = "Rejected", message = "Carton is held, unverified, obsolete, retired or unavailable." };
-                    allocation.State = "Loaded"; c.State = "Loaded"; return new { outcome = "Accepted", id = c.Id, lines = Json.Read<ContentLine[]>(c.Lines), message = "Carton and all its contents committed." };
+                    if (!c.Verified || !c.Attached || c.Held || c.State != "Reserved" || allocation.State != "Reserved") return new { outcome = "Rejected", message = "This carton cannot be loaded. Check its status and label with a supervisor." };
+                    allocation.State = "Loaded"; c.State = "Loaded"; return new { outcome = "Accepted", id = c.Id, lines = Json.Read<ContentLine[]>(c.Lines), message = "Carton loaded. All item quantities are saved." };
                 }
             case "unload":
                 {
-                    Permissions.Require(actor, "DispatchSupervisor"); RequireReason(d); var s = await Get<Shipment>(Str(d, "shipmentId")); Check(!s.LoadApproved && s.InvoiceJobId == null, "Approved or invoicing shipments require a controlled correction."); var c = await Get<Carton>(Str(d, "id")); var a = await db.Allocations.SingleOrDefaultAsync(x => x.CompanyId == company && x.ShipmentId == s.Id && x.CartonId == c.Id && x.Active); Check(a != null && a.State == "Loaded" && c.State == "Loaded", "Carton is not loaded on this shipment."); a!.State = "Reserved"; c.State = "Reserved"; return new { id = c.Id, message = "Unload recorded. All product quantities reversed operationally; no accounting movement." };
+                    Permissions.Require(actor, "DispatchSupervisor"); RequireReason(d); var s = await Get<Shipment>(Str(d, "shipmentId")); Check(!s.LoadApproved && s.InvoiceJobId == null, "Approved or invoicing shipments require a controlled correction."); var c = await Get<Carton>(Str(d, "id")); var a = await db.Allocations.SingleOrDefaultAsync(x => x.CompanyId == company && x.ShipmentId == s.Id && x.CartonId == c.Id && x.Active); Check(a != null && a.State == "Loaded" && c.State == "Loaded", "Carton is not loaded on this shipment."); a!.State = "Reserved"; c.State = "Reserved"; return new { id = c.Id, message = "Carton unloaded. Loading totals are updated. Tally stock is unchanged." };
                 }
             case "releaseShipment":
                 {
                     Permissions.Require(actor, "DispatchSupervisor"); RequireReason(d); var s = await Get<Shipment>(Str(d, "id")); Check(!s.LoadApproved && s.InvoiceJobId == null, "Cannot release an approved/invoicing shipment."); var allocations = await db.Allocations.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync(); Check(allocations.All(x => x.State == "Reserved"), "Physically unload every loaded carton first."); foreach (var a in allocations) { a.Active = false; a.State = "Released"; (await Get<Carton>(a.CartonId)).State = "Available"; }
-                    s.State = "Cancelled"; return new { message = "Reservations released. Original history preserved." };
+                    s.State = "Cancelled"; return new { message = "Shipment cancelled. Reserved cartons are available again. The history is kept." };
                 }
             case "approveLoad":
                 {
-                    Permissions.Require(actor, "DispatchSupervisor"); Check(Flag(d, "physicalConfirmed"), "Physical load review is required."); var s = await Get<Shipment>(Str(d, "id")); var a = await db.Allocations.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync(); Check(a.Count > 0 && a.All(x => x.State == "Loaded"), "Every allocated identity and quantity must be loaded."); Check((await Get<Trip>(s.TripId)).State == "Open", "Trip is not open."); s.LoadApproved = true; s.LoadApprovedBy = actor.Id; s.State = "LoadApproved"; foreach (var session in await db.LoadingSessions.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync()) session.Active = false; return new { message = "Physical load approved. Billing review is next." };
+                    Permissions.Require(actor, "DispatchSupervisor"); Check(Flag(d, "physicalConfirmed"), "Physical load review is required."); var s = await Get<Shipment>(Str(d, "id")); var a = await db.Allocations.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync(); Check(a.Count > 0 && a.All(x => x.State == "Loaded"), "Load every reserved carton before approving."); Check((await Get<Trip>(s.TripId)).State == "Open", "Trip is not open."); s.LoadApproved = true; s.LoadApprovedBy = actor.Id; s.State = "LoadApproved"; foreach (var session in await db.LoadingSessions.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync()) session.Active = false; return new { message = "Physical load approved. Billing review is next." };
                 }
             case "saveBilling":
                 {
@@ -177,11 +177,11 @@ public sealed class Operations(DispatchDb db)
                     var cartons = await ShipmentCartons(s.Id); var totals = cartons.SelectMany(c => Json.Read<ContentLine[]>(c.Lines)).GroupBy(l => new { l.Sku, l.Unit }).Select(g => new { g.Key.Sku, g.Key.Unit, Quantity = g.Sum(l => l.Quantity) }).ToArray();
                     Check(input.Rates.Length == totals.Length && input.Rates.Select(x => x.Sku).Distinct().Count() == input.Rates.Length, "Provide exactly one authorised rate for each SKU; differing units require accountant mapping.");
                     var lines = totals.Select(t => { var r = input.Rates.SingleOrDefault(x => x.Sku == t.Sku) ?? throw new RuleException($"Rate missing for {t.Sku}."); Check(r.Rate >= 0 && r.Rate <= 10000000 && r.DiscountPercent >= 0 && r.DiscountPercent <= 100, "Invalid rate or discount."); return new { t.Sku, t.Unit, t.Quantity, r.Rate, r.DiscountPercent, Net = decimal.Round(t.Quantity * r.Rate * (1 - r.DiscountPercent / 100m), 2, MidpointRounding.AwayFromZero) }; }).ToArray();
-                    Check(input.Freight >= 0 && input.OtherCharges >= 0, "Charges must be non-negative."); s.BillingVersion++; s.State = "BillingDraft"; var bill = new Billing { CompanyId = company, ShipmentId = s.Id, Revision = s.BillingVersion, Snapshot = Json.Write(new { lines, input.Freight, input.OtherCharges, input.Terms, input.Reason, pricingSource = "Authorised manual entry", taxStatus = "Unresolved: no GST assumed", cartons = cartons.Select(c => new { c.Id, c.Revision, c.Lines }), customer = await Get<Customer>(s.CustomerId), s.Destination }), Total = lines.Sum(l => l.Net) + input.Freight + input.OtherCharges }; db.Billings.Add(bill); return new { id = bill.Id, total = bill.Total, revision = bill.Revision, message = "New billing revision saved. Earlier approval does not apply. Total excludes unresolved taxes." };
+                    Check(input.Freight >= 0 && input.OtherCharges >= 0, "Charges must be non-negative."); s.BillingVersion++; s.State = "BillingDraft"; var bill = new Billing { CompanyId = company, ShipmentId = s.Id, Revision = s.BillingVersion, Snapshot = Json.Write(new { lines, input.Freight, input.OtherCharges, input.Terms, input.Reason, pricingSource = "Authorised manual entry", taxStatus = "Unresolved: no GST assumed", cartons = cartons.Select(c => new { c.Id, c.Revision, c.Lines }), customer = await Get<Customer>(s.CustomerId), s.Destination }), Total = lines.Sum(l => l.Net) + input.Freight + input.OtherCharges }; db.Billings.Add(bill); return new { id = bill.Id, total = bill.Total, revision = bill.Revision, message = "Bill changes saved. Check and approve it again. The total does not include tax yet." };
                 }
             case "approveBilling":
                 {
-                    Permissions.Require(actor, "Billing"); var b = await Get<Billing>(Str(d, "id")); var s = await Get<Shipment>(b.ShipmentId); Check(s.LoadApproved && s.BillingVersion == b.Revision && s.InvoiceJobId == null, "Billing revision is no longer current or already posting."); Check(Flag(d, "physicalConfirmed"), "Review customer, contents, rates and charges before approving."); b.Approved = true; b.ApprovedBy = actor.Id; b.ApprovedAt = DateTimeOffset.UtcNow; s.State = "BillingApproved"; return new { message = "Billing draft approved. Tally mapping gates still apply." };
+                    Permissions.Require(actor, "Billing"); var b = await Get<Billing>(Str(d, "id")); var s = await Get<Shipment>(b.ShipmentId); Check(s.LoadApproved && s.BillingVersion == b.Revision && s.InvoiceJobId == null, "Billing revision is no longer current or already posting."); Check(Flag(d, "physicalConfirmed"), "Review customer, contents, rates and charges before approving."); b.Approved = true; b.ApprovedBy = actor.Id; b.ApprovedAt = DateTimeOffset.UtcNow; s.State = "BillingApproved"; return new { message = "Bill approved. Tally setup must still be checked before sending." };
                 }
             case "queueInvoice":
                 {
@@ -192,7 +192,7 @@ public sealed class Operations(DispatchDb db)
                 }
             case "saveMapping":
                 {
-                    Permissions.Require(actor, "Billing"); RequireReason(d); var m = await db.Mappings.SingleAsync(x => x.CompanyId == company); m.ExpectedCompany = Str(d, "expectedCompany"); m.TallyVersion = Str(d, "tallyVersion"); m.SalesLedger = Str(d, "salesLedger"); m.VoucherType = Str(d, "voucherType"); m.Notes = Str(d, "notes"); m.StatutoryRequired = Flag(d, "statutoryRequired"); m.ContractValidated = false; m.Pattern = "Unvalidated"; return new { message = "Mapping draft saved. Posting remains blocked until installation-specific contract verification is implemented and passed." };
+                    Permissions.Require(actor, "Billing"); RequireReason(d); var m = await db.Mappings.SingleAsync(x => x.CompanyId == company); m.ExpectedCompany = Str(d, "expectedCompany"); m.TallyVersion = Str(d, "tallyVersion"); m.SalesLedger = Str(d, "salesLedger"); m.VoucherType = Str(d, "voucherType"); m.Notes = Str(d, "notes"); m.StatutoryRequired = Flag(d, "statutoryRequired"); m.ContractValidated = false; m.Pattern = "Unvalidated"; return new { message = "Tally settings saved. Sending invoices stays off until the setup has been checked and tested." };
                 }
             case "pairConnector":
                 {
@@ -216,7 +216,7 @@ public sealed class Operations(DispatchDb db)
             case "recordReturn":
                 {
                     Permissions.Require(actor, "DispatchSupervisor"); RequireReason(d); var s = await Get<Shipment>(Str(d, "shipmentId")); Check(s.State == "Departed", "Use unload for pre-departure corrections."); var c = await Get<Carton>(Str(d, "id")); Check(await db.Allocations.AnyAsync(x => x.CompanyId == company && x.ShipmentId == s.Id && x.CartonId == c.Id && x.State == "Departed"), "Carton does not belong to the original departure."); var lines = await Normalize(Json.Read<ContentLine[]>(d.GetProperty("lines"))); var prior = await db.Returns.Where(x => x.CompanyId == company && x.CartonId == c.Id).ToListAsync(); var original = Json.Read<ContentLine[]>(c.Lines); foreach (var l in lines) { var available = original.Where(o => o.Sku == l.Sku && o.Unit == l.Unit && o.Batch == l.Batch && o.Godown == l.Godown).Sum(o => o.Quantity) - prior.SelectMany(p => Json.Read<ContentLine[]>(p.Lines)).Where(o => o.Sku == l.Sku && o.Unit == l.Unit && o.Batch == l.Batch && o.Godown == l.Godown).Sum(o => o.Quantity); Check(l.Quantity <= available, "Return exceeds original unreturned quantities."); }
-                    var ret = new ReturnRecord { CompanyId = company, ShipmentId = s.Id, CartonId = c.Id, Lines = Json.Write(lines), Reason = Str(d, "reason"), Condition = Str(d, "condition") }; db.Returns.Add(ret); return new { id = ret.Id, message = "Return quarantined. Original identity stays departed; stock receipt and credit require separate accountant review." };
+                    var ret = new ReturnRecord { CompanyId = company, ShipmentId = s.Id, CartonId = c.Id, Lines = Json.Write(lines), Reason = Str(d, "reason"), Condition = Str(d, "condition") }; db.Returns.Add(ret); return new { id = ret.Id, message = "Return saved. Keep these goods separate. Accounts must check any credit and stock update." };
                 }
             case "returnDisposition":
                 {

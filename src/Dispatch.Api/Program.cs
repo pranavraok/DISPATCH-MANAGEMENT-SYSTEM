@@ -17,18 +17,28 @@ var origins = (builder.Configuration["AllowedOrigins"] ?? "http://127.0.0.1:5173
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("login", ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); o.AddPolicy("api", ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Request.Cookies["dispatch_session"] ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 600, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
 var app = builder.Build();
+if (args.Contains("--migrate-only"))
+{
+    if (connection == null) throw new InvalidOperationException("Configure the database before running migrations.");
+    await using var scope = app.Services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<DispatchDb>();
+    await db.Database.MigrateAsync();
+    await Seed.Run(db, builder.Configuration);
+    Console.WriteLine("Database migrations completed. No web server started.");
+    return;
+}
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff"; ctx.Response.Headers["Referrer-Policy"] = "same-origin"; ctx.Response.Headers["X-Frame-Options"] = "DENY";
     if (ctx.Request.Path.StartsWithSegments("/api")) ctx.Response.Headers.CacheControl = "no-store";
     try { await next(); }
     catch (RuleException e) { ctx.Response.StatusCode = e.Status; await ctx.Response.WriteAsJsonAsync(new { error = e.Message, correlationId = ctx.TraceIdentifier }); }
-    catch (DbUpdateConcurrencyException) { ctx.Response.StatusCode = 409; await ctx.Response.WriteAsJsonAsync(new { error = "Data changed. Refresh authoritative state before trying again." }); }
-    catch (Exception e) { app.Logger.LogError(e, "Request {CorrelationId} failed", ctx.TraceIdentifier); ctx.Response.StatusCode = 500; await ctx.Response.WriteAsJsonAsync(new { error = "Request failed. Reconcile the request ID before retrying an uncertain operation.", correlationId = ctx.TraceIdentifier }); }
+    catch (DbUpdateConcurrencyException) { ctx.Response.StatusCode = 409; await ctx.Response.WriteAsJsonAsync(new { error = "This record changed. Refresh the page and try again." }); }
+    catch (Exception e) { app.Logger.LogError(e, "Request {CorrelationId} failed", ctx.TraceIdentifier); ctx.Response.StatusCode = 500; await ctx.Response.WriteAsJsonAsync(new { error = "The result could not be confirmed. Check the saved result before trying again.", correlationId = ctx.TraceIdentifier }); }
 });
 app.UseCors(); app.UseRateLimiter(); app.UseDefaultFiles(); app.UseStaticFiles();
 if (connection != null && builder.Configuration["MigrateOnStart"] == "true") { await using var scope = app.Services.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<DispatchDb>(); await db.Database.MigrateAsync(); await Seed.Run(db, builder.Configuration); }
-app.MapGet("/api/health", async (DispatchDb db) => { var connected = connection != null && await db.Database.CanConnectAsync(); return Results.Json(new { service = "Kriyantha Dispatch API", database = connected ? "Connected" : "Not configured / unavailable", postingEnabled = false, environment = app.Environment.EnvironmentName, version = "0.1.0" }, statusCode: connected ? 200 : 503); });
+app.MapGet("/api/health", async (DispatchDb db) => { var connected = connection != null && await db.Database.CanConnectAsync(); return Results.Json(new { service = "Electro Group Dispatch API", database = connected ? "Connected" : "Not configured / unavailable", postingEnabled = false, environment = app.Environment.EnvironmentName, version = "0.1.0" }, statusCode: connected ? 200 : 503); });
 app.MapPost("/api/auth/login", async (Login input, HttpContext ctx, DispatchDb db) =>
 {
     var email = input.Email.Trim().ToLowerInvariant(); var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.Active); var hasher = new PasswordHasher<User>();

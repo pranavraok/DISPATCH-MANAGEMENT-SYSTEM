@@ -1,6 +1,6 @@
-# Kriyantha Dispatch Control
+# Electro Group Dispatch Control
 
-Case 2 packed-carton registration, unique QR labelling, verified dispatch and controlled billing for KR Vishwanath Agarbatti Works.
+Case 2 packed-carton registration, unique QR labelling, verified dispatch and controlled billing for Electro Group of Industries.
 
 This is a runnable React/TypeScript + ASP.NET Core 10 + PostgreSQL application, not only a visual prototype. The complete implementation specification is retained in [docs/MASTER_SPECIFICATION.txt](docs/MASTER_SPECIFICATION.txt). Delivery is staged. Actual Tally invoice creation/readback and production readiness are **not** claimed.
 
@@ -12,7 +12,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Open http://127.0.0.1:5080. Admin: admin@kriyantha.test; MD read-only: md@kriyantha.test. Use the respective private passwords you configured. No fixed production login is shipped.
+Open http://127.0.0.1:5080. Admin: admin@electrogroup.test; MD read-only: md@electrogroup.test. Use the respective private passwords you configured. No fixed production login is shipped.
 
 For native Windows development, run the API on 5080 with a PostgreSQL connection and bootstrap environment variables, then `npm ci` / `npm run dev` inside web. Full commands: [Operator runbook](docs/OPERATOR_RUNBOOK.md).
 

@@ -8,7 +8,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Kriyantha", "DispatchConnector");
+var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+var folder = Path.Combine(appData, "ElectroGroup", "DispatchConnector");
+// Reuse an existing protected store so a branding change cannot lose a pending invoice journal.
+var legacyFolder = Path.Combine(appData, "Kriyantha", "DispatchConnector");
+if (!Directory.Exists(folder) && Directory.Exists(legacyFolder)) folder = legacyFolder;
 if (args.Contains("--self-test")) { ConnectorTests.Run(); return; }
 if (args.Contains("--pair"))
 {
@@ -19,7 +23,7 @@ if (args.Contains("--pair"))
     Console.WriteLine(); if (secret.Length != 64) throw new InvalidOperationException("Pairing key must be 64 hex characters.");
     var config = new ConnectorConfig(cloud, id, company, "Test", endpoint); await File.WriteAllTextAsync(Path.Combine(folder, "config.json"), JsonSerializer.Serialize(config)); await File.WriteAllBytesAsync(Path.Combine(folder, "credential.dpapi"), ProtectedData.Protect(Encoding.UTF8.GetBytes(secret.ToString()), null, DataProtectionScope.CurrentUser)); Console.WriteLine("Paired for diagnostics. No voucher posting enabled."); return;
 }
-var builder = Host.CreateApplicationBuilder(args); builder.Services.AddWindowsService(o => o.ServiceName = "Kriyantha Dispatch Connector"); builder.Services.AddSingleton(new ConnectorStorage(folder)); builder.Services.AddHostedService<ConnectorWorker>(); await builder.Build().RunAsync();
+var builder = Host.CreateApplicationBuilder(args); builder.Services.AddWindowsService(o => o.ServiceName = "Electro Group Dispatch Connector"); builder.Services.AddSingleton(new ConnectorStorage(folder)); builder.Services.AddHostedService<ConnectorWorker>(); await builder.Build().RunAsync();
 
 record ConnectorConfig(string Cloud, string ConnectorId, string Company, string Environment, string TallyEndpoint);
 record ConnectorStorage(string Folder);
@@ -53,7 +57,7 @@ sealed class ConnectorWorker(ConnectorStorage storage, ILogger<ConnectorWorker> 
 }
 static class TallyXml
 {
-    public static string CompanyProbe(string company) => new XDocument(new XElement("ENVELOPE", new XElement("HEADER", new XElement("VERSION", 1), new XElement("TALLYREQUEST", "Export"), new XElement("TYPE", "Collection"), new XElement("ID", "KriyanthaCompanyProbe")), new XElement("BODY", new XElement("DESC", new XElement("STATICVARIABLES", new XElement("SVCURRENTCOMPANY", company), new XElement("SVEXPORTFORMAT", "$$SysName:XML")), new XElement("TDL", new XElement("TDLMESSAGE", new XElement("COLLECTION", new XAttribute("NAME", "KriyanthaCompanyProbe"), new XElement("TYPE", "Company"), new XElement("FETCH", "Name,GUID")))))))).ToString(SaveOptions.DisableFormatting);
+    public static string CompanyProbe(string company) => new XDocument(new XElement("ENVELOPE", new XElement("HEADER", new XElement("VERSION", 1), new XElement("TALLYREQUEST", "Export"), new XElement("TYPE", "Collection"), new XElement("ID", "ElectroGroupCompanyProbe")), new XElement("BODY", new XElement("DESC", new XElement("STATICVARIABLES", new XElement("SVCURRENTCOMPANY", company), new XElement("SVEXPORTFORMAT", "$$SysName:XML")), new XElement("TDL", new XElement("TDLMESSAGE", new XElement("COLLECTION", new XAttribute("NAME", "ElectroGroupCompanyProbe"), new XElement("TYPE", "Company"), new XElement("FETCH", "Name,GUID")))))))).ToString(SaveOptions.DisableFormatting);
     public static XDocument Parse(string xml) { using var reader = XmlReader.Create(new StringReader(xml), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 4 * 1024 * 1024 }); return XDocument.Load(reader); }
 }
 // Durable boundary helper for the later validated posting adapter. A prepared operation can be cancelled;

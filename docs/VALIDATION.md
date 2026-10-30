@@ -30,7 +30,7 @@ The actual application PDF function generated a one-page 210 × 297 mm test PDF.
 
 The self-contained win-x64 connector was published under artifacts/connector. Its executable can run `--self-test` without a .NET SDK on the target machine. The source and packaged fixture tests are distinct from an actual Tally connection.
 
-Deployment: https://kriyantha-dispatch.vercel.app/ (production hosting target, trial application). Source: https://github.com/pranavraok/DISPATCH-MANAGEMENT-SYSTEM . Cloud database credentials are configured privately in Vercel. Authenticated sessions persist operational records online. The optional visible sample remains read-only and fictional. No Tally invoice posting is enabled.
+Deployment: https://electro-group-dispatch.vercel.app/ (production hosting target, trial application). Source: https://github.com/pranavraok/DISPATCH-MANAGEMENT-SYSTEM . Cloud database credentials are configured privately in Vercel. Authenticated sessions persist operational records online. The optional visible sample remains read-only and fictional. No Tally invoice posting is enabled.
 
 Additional departure/return tests deliberately set isolated SQL job fixtures to Confirmed with references beginning SIMULATED-NO-INVOICE. They verify application gates without generating a real invoice or statutory reference. No accountant, legal document, Tally stock movement or actual printer success is implied.
 
@@ -57,3 +57,11 @@ Additional departure/return tests deliberately set isolated SQL job fixtures to 
 ## Cloud activation check, 30 October 2026
 
 Hosted health, administrator login, MD login, Secure/HttpOnly session cookies, fictional draft persistence across fresh sessions, same-request idempotency and MD write denial (403) passed against the actual HTTPS application. The check created one unapproved fictional draft and zero cartons. No Tally request, real invoice, physical approval or stock movement was performed. Startup migrations were disabled after successful initialization.
+
+## Electro Group update, 30 October 2026
+
+Branding now uses Electro Group of Industries / Electrotech Services in the application, PDF labels and packing lists, API health, connector service, account defaults, and hosting project. A one-time migration corrected the known trial company and generated trial email aliases without changing passwords, IDs, carton quantities, packing lists, or dispatch history. The hosted database migration and preservation checks passed.
+
+The home page now has four plain-language steps; navigation, operator messages, roles, status labels, carton details and return handling use simpler English. Returns use item quantity fields instead of editable JSON. The new return form was used through the browser to save a fictional partial mixed-carton return in the isolated local database.
+
+Regression: 35 PostgreSQL/API integration tests, 11 final-flow fixture tests, 15 frontend domain tests, and 7 connector guard tests passed (68 total). Departure/invoice successes are explicit local fixtures, not real Tally postings. TypeScript, Vite, API and connector builds passed. The rebranded A4 PDF was rendered and its QR independently decoded with the original carton identity unchanged. Real printer dimensions, D-5015 input/sound and the installed Tally/accounting checks remain pending.

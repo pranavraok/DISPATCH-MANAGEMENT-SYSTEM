@@ -23,7 +23,7 @@ export async function labelPdf(cartons: Row[], company: string, test = false) {
     pdf.addImage(qr, "PNG", x + 2, y + 3, 34, 34);
     pdf.setTextColor(25, 45, 38);
     pdf.setFontSize(7);
-    pdf.text("KRIYANTHA / DISPATCH", x + 38, y + 7);
+    pdf.text("ELECTRO GROUP OF INDUSTRIES", x + 38, y + 7);
     pdf.setFontSize(8);
     pdf.text(c.id, x + 38, y + 13);
     pdf.setFontSize(7);
@@ -47,7 +47,7 @@ export async function labelPdf(cartons: Row[], company: string, test = false) {
     pdf.text(
       test
         ? "TEST PAGE - print at 100% / Actual size"
-        : "Packed contents only. Validate in authorised application.",
+        : "Check carton contents in the dispatch app.",
       x + 3,
       y + 48,
     );
@@ -70,11 +70,11 @@ export async function packingPdf(
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF();
   pdf.setFontSize(17);
-  pdf.text("KRIYANTHA / Packing list", 15, 20);
+  pdf.text("Electro Group of Industries", 15, 20);
   pdf.setFontSize(10);
   pdf.text(
     [
-      "Operational document - NOT A TAX INVOICE",
+      "Packing list - NOT A TAX INVOICE",
       shipment.id,
       customer,
       shipment.destination,

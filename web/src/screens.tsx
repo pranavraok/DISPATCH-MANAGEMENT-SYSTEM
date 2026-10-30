@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { plainLabel } from "./brand";
 import { useState, type FormEvent } from "react";
 import {
   Plus,
@@ -71,8 +72,8 @@ export function PackingScreen(ctx: Context) {
     <>
       <Heading
         eyebrow="ALREADY PACKED. READY TO REGISTER."
-        title="Packed registration"
-        detail="Describe actual cartons. A supervisor approves the physical groups."
+        title="Packing"
+        detail="Add what is inside the packed cartons. A supervisor checks and approves the list."
         action={
           <div className="button-row">
             <button
@@ -89,15 +90,14 @@ export function PackingScreen(ctx: Context) {
               onClick={() => setEdit({})}
             >
               <Plus size={17} />
-              New manifest
+              New packing list
             </button>
           </div>
         }
       />
       <div className="notice">
         <ShieldCheck size={18} />
-        Packing groups speed up data entry. Approval creates a different
-        immutable identity for every physical carton.
+        Use a group for cartons with the same contents. Each carton gets its own ID after approval.
       </div>
       <section className="panel">
         {s.manifests.length ? (
@@ -105,10 +105,10 @@ export function PackingScreen(ctx: Context) {
             <table>
               <thead>
                 <tr>
-                  <th>MANIFEST</th>
+                  <th>PACKING LIST</th>
                   <th>CONTENTS</th>
                   <th>CARTONS</th>
-                  <th>STATE</th>
+                  <th>STATUS</th>
                   <th>ACTIONS</th>
                 </tr>
               </thead>
@@ -120,7 +120,7 @@ export function PackingScreen(ctx: Context) {
                       <td>
                         <strong>{m.name}</strong>
                         <small>
-                          {m.id} · Revision {m.version}
+                          {m.id} · Version {m.version}
                         </small>
                       </td>
                       <td>
@@ -169,8 +169,8 @@ export function PackingScreen(ctx: Context) {
           </div>
         ) : (
           <Empty
-            title="No packed manifests yet"
-            detail="Start with the actual packed groups or import a validated spreadsheet."
+            title="No packing lists yet"
+            detail="Add packed cartons or upload an Excel file."
           />
         )}
       </section>
@@ -182,7 +182,7 @@ export function PackingScreen(ctx: Context) {
       )}
       {confirm && (
         <Modal
-          title="Approve physical packed contents"
+          title="Check and approve packing"
           close={() => setConfirm(null)}
         >
           <p>
@@ -226,7 +226,7 @@ export function PackingScreen(ctx: Context) {
             }}
           >
             <Check size={17} />
-            Approve & create {groupTotal(parse(confirm.groups))} unique cartons
+            Approve {groupTotal(parse(confirm.groups))} cartons
           </button>
         </Modal>
       )}
@@ -269,7 +269,7 @@ function PackedEditor({
   }
   return (
     <Modal
-      title={m.id ? "Packed contents" : "Register a packed manifest"}
+      title={m.id ? "Packed contents" : "New packing list"}
       close={close}
     >
       <form
@@ -286,7 +286,7 @@ function PackedEditor({
           if (await action(ctx, "saveManifest", data)) close();
         }}
       >
-        <Field label="Manifest name">
+        <Field label="Packing list name">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -295,7 +295,7 @@ function PackedEditor({
             disabled={readonly}
           />
         </Field>
-        <Field label="Customer assignment">
+        <Field label="Customer">
           <select
             value={customer}
             onChange={(e) => setCustomer(e.target.value)}
@@ -313,7 +313,7 @@ function PackedEditor({
           {groups.map((g, i) => (
             <section className="group-editor" key={i}>
               <div className="form-grid">
-                <Field label="Physical group marking">
+                <Field label="Group mark on the cartons">
                   <input
                     value={g.marking}
                     onChange={(e) => change(i, "marking", e.target.value)}
@@ -525,11 +525,10 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
     }
   }
   return (
-    <Modal title="Import packed groups or individual cartons" close={close}>
+    <Modal title="Import packing list" close={close}>
       <p>
         Use one row per group and product. Mixed cartons share the same group
-        and carton count. For unique contents, use a unique group with cartons =
-        1.
+        and carton count. For a carton with different contents, use a separate group with a carton count of 1.
       </p>
       <button
         className="secondary"
@@ -538,13 +537,13 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
         <FileDown size={16} />
         Download template
       </button>
-      <Field label="Manifest name">
+      <Field label="Packing list name">
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <div className="upload-zone">
         <Upload size={25} />
         <strong>Choose a CSV or Excel workbook</strong>
-        <span>2 MB maximum · 10,000 rows · exact SKU and unit mapping</span>
+        <span>Up to 2 MB or 10,000 rows. Use the item codes and units shown in this app.</span>
         <input
           aria-label="Import file"
           type="file"
@@ -609,7 +608,7 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
                 close();
             }}
           >
-            Commit entire import as draft
+            Save as a draft
           </button>
         </>
       )}
@@ -739,7 +738,7 @@ export function CartonScreen(ctx: Context) {
                   <th>CARTON / GROUP</th>
                   <th>CONTENTS PER CARTON</th>
                   <th>PHYSICAL CHECK</th>
-                  <th>STATE</th>
+                  <th>STATUS</th>
                   <th>ACTIONS</th>
                 </tr>
               </thead>
@@ -763,7 +762,7 @@ export function CartonScreen(ctx: Context) {
                     <td>
                       <strong className="mono">{c.id}</strong>
                       <small>
-                        Group {c.marking} · Label r{c.revision}
+                        Group {c.marking} · Label version {c.revision}
                       </small>
                     </td>
                     <td>
@@ -838,17 +837,16 @@ export function CartonScreen(ctx: Context) {
           </div>
         ) : (
           <Empty
-            title="No carton identities yet"
-            detail="Approve a packed manifest to create its unique physical carton IDs."
+            title="No cartons yet"
+            detail="Approve a packing list to create carton IDs."
           />
         )}
       </section>
       <section className="panel verification-panel">
         <div>
-          <h2>Scan attachment & contents verification</h2>
+          <h2>Check a carton</h2>
           <p>
-            A supervisor checks the actual box. Printed data alone does not
-            prove sealed contents.
+            A supervisor must check the actual carton and its contents before confirming.
           </p>
         </div>
         <form
@@ -877,14 +875,14 @@ export function CartonScreen(ctx: Context) {
               checked={physical}
               onChange={(e) => setPhysical(e.target.checked)}
             />
-            I checked the physical identity and actual contents.
+            I checked this carton, its label, and its contents.
           </label>
           <button
             className="primary"
             disabled={!physical || !may(ctx, "PackingSupervisor")}
           >
             <ShieldCheck size={16} />
-            Verify this carton
+            Confirm carton check
           </button>
         </form>
       </section>
@@ -945,21 +943,21 @@ export function CartonScreen(ctx: Context) {
       )}
       {history && (
         <Modal
-          title="Carton identity & contents"
+          title="Carton details"
           close={() => setHistory(null)}
         >
-          <code>{`K1|${history.companyId}|${history.id}|${history.revision}`}</code>
-          <pre>
-            {JSON.stringify(
-              { ...history, lines: parse(history.lines) },
-              null,
-              2,
-            )}
-          </pre>
+          <h3>{history.id}</h3>
+          <dl className="carton-facts">
+            <div><dt>Group</dt><dd>{history.marking}</dd></div>
+            <div><dt>Status</dt><dd>{plainLabel(history.state)}</dd></div>
+            <div><dt>Label version</dt><dd>{history.revision}</dd></div>
+            <div><dt>Label attached</dt><dd>{history.attached ? "Yes" : "No"}</dd></div>
+            <div><dt>Contents checked</dt><dd>{history.verified ? "Yes" : "No"}</dd></div>
+            <div><dt>On hold</dt><dd>{history.held ? "Yes" : "No"}</dd></div>
+          </dl>
+          <table><thead><tr><th>ITEM</th><th>QUANTITY</th></tr></thead><tbody>{parse<Line[]>(history.lines).map((line, i) => <tr key={i}><td>{s.products.find((p) => p.sku === line.sku)?.name ?? line.sku}<small>{line.sku}{line.batch ? " · Batch " + line.batch : ""}{line.godown ? " · " + line.godown : ""}</small></td><td>{line.quantity} {line.unit}</td></tr>)}</tbody></table>
           <p>
-            Full historical events are available in Reports & audit. Unloaded
-            content corrections require a new label revision and physical
-            reverification.
+            See Reports for the full history. If contents change, print a new label and check the carton again.
           </p>
         </Modal>
       )}
@@ -974,14 +972,14 @@ export function TripsScreen(ctx: Context) {
     [driver, setDriver] = useState(""),
     [transporter, setTransporter] = useState(""),
     [customer, setCustomer] = useState(s.customers[0]?.id ?? ""),
-    [destination, setDestination] = useState("Mysuru, Karnataka"),
+    [destination, setDestination] = useState(""),
     [ids, setIds] = useState<string[]>([]);
   return (
     <>
       <Heading
         eyebrow="CUSTOMERS, CARTONS AND VEHICLES"
-        title="Dispatch trips"
-        detail="Partial consignments stay separate. One vehicle can carry several customer shipments."
+        title="Trips & customers"
+        detail="Add a vehicle, choose customers, and reserve their cartons. Each customer has a separate shipment."
         action={
           <button
             className="primary"
@@ -1030,7 +1028,7 @@ export function TripsScreen(ctx: Context) {
                     setIds([]);
                   }}
                 >
-                  Allocate customer shipment
+                  Add customer & cartons
                 </button>
                 <button
                   className="primary small"
@@ -1040,7 +1038,7 @@ export function TripsScreen(ctx: Context) {
                   onClick={() => {
                     if (
                       confirm(
-                        "Confirm physical departure review. All shipment invoice and document gates must pass.",
+                        "Has the vehicle left? All shipments must have confirmed invoices and required documents.",
                       )
                     )
                       void action(ctx, "depart", {
@@ -1094,7 +1092,7 @@ export function TripsScreen(ctx: Context) {
                         onClick={() => {
                           if (
                             confirm(
-                              "I reviewed the exact allocated cartons and physical load.",
+                              "I checked that all reserved cartons are loaded on this vehicle.",
                             )
                           )
                             void action(ctx, "approveLoad", {
@@ -1166,7 +1164,7 @@ export function TripsScreen(ctx: Context) {
                                 });
                             }}
                           >
-                            Cancel & release reservation
+                            Cancel shipment & free cartons
                           </button>
                         )}
                     </div>
@@ -1225,7 +1223,7 @@ export function TripsScreen(ctx: Context) {
       )}
       {allocating && (
         <Modal
-          title="Reserve verified cartons for a customer"
+          title="Choose cartons for a customer"
           close={() => setAllocating(null)}
         >
           <Field label="Customer">
@@ -1317,21 +1315,18 @@ export function BillingScreen(ctx: Context) {
       <Heading
         eyebrow="REVIEW FIRST. POST ONCE."
         title="Billing & Tally"
-        detail="Each approved customer shipment has its own versioned billing document."
+        detail="Check the prices for each customer after the load is approved."
       />
       <div className="notice amber">
         <AlertTriangle size={18} />
         <div>
-          <strong>Live posting is blocked.</strong> Exact company identity,
-          stock mappings, approved voucher XML, taxes, freight and reliable
-          readback must be validated in an isolated Tally test company. Draft
-          totals below exclude unresolved taxes.
+          <strong>Sending invoices to Tally is off.</strong> Your accountant must first check the company, items, taxes, freight, and invoice results in a Tally test company. Draft totals below do not include tax.
         </div>
       </div>
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Customer billing documents</h2>
+            <h2>Customer bills</h2>
             <p>Loading approval is required before pricing.</p>
           </div>
         </div>
@@ -1373,7 +1368,7 @@ export function BillingScreen(ctx: Context) {
                           </Badge>
                         </td>
                         <td>
-                          {bill ? "r" + bill.revision : "No draft"}
+                          {bill ? "Version " + bill.revision : "No draft"}
                           {bill && (
                             <small>
                               {bill.approved ? "Approved" : "Unapproved"}
@@ -1404,7 +1399,7 @@ export function BillingScreen(ctx: Context) {
                                 onClick={() => {
                                   if (
                                     confirm(
-                                      "I reviewed this exact billing revision and the selected customer shipment.",
+                                      "I checked this bill and the correct customer shipment.",
                                     )
                                   )
                                     void action(ctx, "approveBilling", {
@@ -1413,7 +1408,7 @@ export function BillingScreen(ctx: Context) {
                                     });
                                 }}
                               >
-                                Approve r{bill.revision}
+                                Approve version {bill.revision}
                               </button>
                             )}
                             {bill?.approved && !sh.invoiceJobId && (
@@ -1424,7 +1419,7 @@ export function BillingScreen(ctx: Context) {
                                   action(ctx, "queueInvoice", { id: sh.id })
                                 }
                               >
-                                Create posting job
+                                Save Tally invoice request
                               </button>
                             )}
                           </div>
@@ -1437,25 +1432,25 @@ export function BillingScreen(ctx: Context) {
           </div>
         ) : (
           <Empty
-            title="No customer billing documents yet"
-            detail="Allocate cartons, verify loading and approve the physical load to begin billing."
+            title="No bills yet"
+            detail="Reserve cartons, scan them during loading, and approve the load to start billing."
           />
         )}
       </section>
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Posting jobs & reconciliation</h2>
-            <p>A lost or uncertain response never means a safe retry.</p>
+            <h2>Tally invoice status</h2>
+            <p>If a result is missing, check it before trying again.</p>
           </div>
-          <Badge tone="amber">Guarded</Badge>
+          <Badge tone="amber">Tally setup needed</Badge>
         </div>
         {s.jobs.length ? (
           <table>
             <thead>
               <tr>
                 <th>OPERATION</th>
-                <th>STATE</th>
+                <th>STATUS</th>
                 <th>DETAIL</th>
                 <th>VOUCHER</th>
               </tr>
@@ -1480,8 +1475,8 @@ export function BillingScreen(ctx: Context) {
           </table>
         ) : (
           <Empty
-            title="No posting attempts"
-            detail="Approved billing can create a durable blocked job for review. No Tally Create call is enabled in this stage."
+            title="No invoices sent"
+            detail="You can save an invoice request for review. It stays blocked until Tally setup is checked."
           />
         )}
       </section>
@@ -1532,16 +1527,13 @@ function BillingEditor({
     [reason, setReason] = useState(""),
     [terms, setTerms] = useState(previousData?.terms ?? "");
   return (
-    <Modal title="Review billing revision" close={close}>
+    <Modal title="Check bill" close={close}>
       <div className="notice amber">
-        Rates from Tally are currently unavailable. Enter authorised rates with
-        a reason. No actual GST rate or freight tax treatment is assumed.
+        Tally prices are not available yet. Enter approved prices and the reason. Tax and freight tax still need an accountant’s check.
       </div>
       {cartons.length !== ids.length && (
         <div className="notice error">
-          Some allocated carton details are outside the current page. Load
-          complete shipment details before billing. Server validation will
-          reject an incomplete rate set.
+          Some carton details are missing from this page. Load all shipment details before entering prices.
         </div>
       )}
       <form
@@ -1567,7 +1559,7 @@ function BillingEditor({
               {r.sku} · {ts[i].quantity} {ts[i].unit}
             </strong>
             <div className="form-grid">
-              <Field label="Rate per recorded unit (₹)">
+              <Field label="Price per unit (₹)">
                 <input
                   inputMode="decimal"
                   value={r.rate}
@@ -1617,7 +1609,7 @@ function BillingEditor({
         <Field label="Terms">
           <textarea value={terms} onChange={(e) => setTerms(e.target.value)} />
         </Field>
-        <Field label="Reason / source for pricing and changes">
+        <Field label="Reason for these prices or changes">
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -1629,7 +1621,7 @@ function BillingEditor({
           className="primary wide"
           disabled={cartons.length !== ids.length}
         >
-          Save new revision · invalidate earlier billing approval
+          Save changes · approval will be needed again
         </button>
       </form>
     </Modal>
@@ -1650,8 +1642,8 @@ export function SetupScreen(ctx: Context) {
     <>
       <Heading
         eyebrow="CONNECTED, WITH THE RIGHT BOUNDARIES"
-        title="Settings & connections"
-        detail="Scanner PC → cloud application → outbound connector on the separate Tally PC."
+        title="Settings"
+        detail="Manage users and connect the Tally PC."
       />
       <div className="setup-steps">
         {[
@@ -1676,8 +1668,8 @@ export function SetupScreen(ctx: Context) {
       </div>
       <div className="dashboard-grid">
         <section className="panel panel-padding">
-          <h2>Accountant mapping draft</h2>
-          <p>Configuration changes are audited and invalidate the contract.</p>
+          <h2>Tally settings for the accountant</h2>
+          <p>Changes are recorded. The accountant must check the settings again after any change.</p>
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -1688,11 +1680,11 @@ export function SetupScreen(ctx: Context) {
                 voucherType,
                 notes,
                 statutoryRequired: statutory,
-                reason: "Accountant mapping draft update",
+                reason: "Tally settings for the accountant update",
               });
             }}
           >
-            <Field label="Exact isolated TEST company name">
+            <Field label="Exact Tally test company name">
               <input
                 value={expectedCompany}
                 onChange={(e) => setCompany(e.target.value)}
@@ -1719,7 +1711,7 @@ export function SetupScreen(ctx: Context) {
                 onChange={(e) => setLedger(e.target.value)}
               />
             </Field>
-            <Field label="Pattern, unit, GST & freight notes">
+            <Field label="Notes on items, units, GST, and freight">
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -1734,17 +1726,16 @@ export function SetupScreen(ctx: Context) {
               Require applicable statutory references before departure.
             </label>
             <button className="primary" disabled={!may(ctx, "Billing")}>
-              Save mapping draft
+              Save settings
             </button>
             <div className="notice amber">
-              This stage cannot certify a posting contract. Live Tally posting
-              remains disabled.
+              Sending invoices to Tally stays off until the accountant checks the setup.
             </div>
           </form>
         </section>
         <section className="panel panel-padding">
-          <h2>Windows Tally connectors</h2>
-          <p>Secrets remain on the server and in Windows-protected storage.</p>
+          <h2>Tally PC connections</h2>
+          <p>Pair the connector installed on the Tally PC.</p>
           <button
             className="secondary"
             disabled={!may(ctx) || expectedCompany.length < 3}
@@ -1757,7 +1748,7 @@ export function SetupScreen(ctx: Context) {
             }}
           >
             <Plus size={16} />
-            Pair exact test company
+            Connect a Tally test company
           </button>
           {s.connectors.map((c) => (
             <div className="connector-card" key={c.id}>
@@ -1771,7 +1762,7 @@ export function SetupScreen(ctx: Context) {
               <small>Last heartbeat: {date(c.lastSeen)}</small>
               <p>
                 {parse(c.diagnostics).detail ??
-                  "Waiting for outbound heartbeat."}
+                  "Waiting for the Tally PC to connect."}
               </p>
               <button
                 className="text-link danger"
@@ -1783,20 +1774,18 @@ export function SetupScreen(ctx: Context) {
                   })
                 }
               >
-                Revoke credential
+                Disconnect
               </button>
             </div>
           ))}
           {!s.connectors.length && (
             <Empty
-              title="No connector paired"
-              detail="Tally runs on another PC. This application never calls the factory's localhost from the cloud."
+              title="No Tally PC connected yet"
+              detail="Install the connector on the PC running Tally, then pair it here."
             />
           )}
           <div className="notice">
-            D-5015 generic HID input cannot report battery, radio signal or
-            remote decode tones. Use a nearby speaker and the explicit audio
-            test.
+            Check the D-5015 scanner battery and receiver by hand. Use Test speaker on the loading screen to check the PC sound.
           </div>
         </section>
       </div>
@@ -1804,7 +1793,7 @@ export function SetupScreen(ctx: Context) {
         <div className="panel-heading">
           <div>
             <h2>Users & roles</h2>
-            <p>Permissions are enforced by the API.</p>
+            <p>Choose which jobs each person can do.</p>
           </div>
           <button
             className="secondary small"
@@ -1876,7 +1865,7 @@ function UserEditor({ ctx, close }: { ctx: Context; close: () => void }) {
     [password, setPassword] = useState(""),
     [roles, setRoles] = useState<string[]>(["MD"]);
   return (
-    <Modal title="Create workspace user" close={close}>
+    <Modal title="Add user" close={close}>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -1929,7 +1918,7 @@ function UserEditor({ ctx, close }: { ctx: Context; close: () => void }) {
                   )
                 }
               />
-              {r === "MD" ? "MD · Read-only" : r}
+              {plainLabel(r)}
             </label>
           ))}
         </div>
@@ -1945,14 +1934,17 @@ export function ReturnsScreen(ctx: Context) {
     [cartonId, setCarton] = useState(""),
     [reason, setReason] = useState(""),
     [condition, setCondition] = useState("Uninspected"),
-    [lines, setLines] = useState("[]"),
+    [lines, setLines] = useState<Line[]>([]),
+    [sourceLines, setSourceLines] = useState<Line[]>([]),
+    [checkedCarton, setCheckedCarton] = useState(""),
+    [finding, setFinding] = useState(false),
     [error, setError] = useState("");
   return (
     <>
       <Heading
         eyebrow="HISTORY STAYS INTACT"
-        title="Returns & corrections"
-        detail="Post-departure returns are quarantined. Pre-departure changes use Unload."
+        title="Returns"
+        detail="Keep returned goods separate for checking. For goods still on the vehicle, use Unload on the trip."
         action={
           <button
             className="primary"
@@ -1965,8 +1957,7 @@ export function ReturnsScreen(ctx: Context) {
         }
       />
       <div className="notice">
-        Original outbound identities stay departed. Return receipt, QC,
-        accounting credit and stock restock are separate decisions.
+        A return does not undo the original dispatch. Check the goods and ask accounts to approve any credit or stock update.
       </div>
       <section className="panel">
         {s.returns.length ? (
@@ -1975,7 +1966,7 @@ export function ReturnsScreen(ctx: Context) {
               <tr>
                 <th>ORIGINAL CARTON</th>
                 <th>RETURNED CONTENTS</th>
-                <th>QC STATE</th>
+                <th>GOODS CHECK</th>
                 <th>ACCOUNTING</th>
               </tr>
             </thead>
@@ -2007,7 +1998,7 @@ export function ReturnsScreen(ctx: Context) {
                           key={disposition}
                           disabled={!may(ctx, "PackingSupervisor")}
                           onClick={() => {
-                            const reason = prompt("QC decision reason");
+                            const reason = prompt("Reason for this decision");
                             if (reason)
                               void action(ctx, "returnDisposition", {
                                 id: r.id,
@@ -2016,12 +2007,12 @@ export function ReturnsScreen(ctx: Context) {
                               });
                           }}
                         >
-                          {disposition}
+                          {plainLabel(disposition)}
                         </button>
                       ))}
                     </div>
                   </td>
-                  <td>{r.accountingStatus}</td>
+                  <td>{r.accountingStatus === "Credit/stock movement pending accountant review" ? "Accounts must check the credit and stock update." : r.accountingStatus}</td>
                 </tr>
               ))}
             </tbody>
@@ -2029,13 +2020,13 @@ export function ReturnsScreen(ctx: Context) {
         ) : (
           <Empty
             title="No returned cartons"
-            detail="Record actual returned quantities against an original departed shipment and carton."
+            detail="Record returned goods using the original shipment and carton."
           />
         )}
       </section>
       {open && (
         <Modal
-          title="Record full or partial physical return"
+          title="Record returned goods"
           close={() => setOpen(false)}
         >
           <form
@@ -2043,7 +2034,9 @@ export function ReturnsScreen(ctx: Context) {
               e.preventDefault();
               try {
                 setError("");
-                const returned = parse(lines);
+                if (checkedCarton !== cartonId.trim()) throw Error("Find and check the carton before saving.");
+                const returned = lines.filter((line) => Number(line.quantity) > 0);
+                if (!returned.length) throw Error("Enter at least one returned quantity.");
                 if (
                   await ctx.run("recordReturn", {
                     shipmentId,
@@ -2059,10 +2052,10 @@ export function ReturnsScreen(ctx: Context) {
               }
             }}
           >
-            <Field label="Original departed shipment">
+            <Field label="Original dispatched shipment">
               <select
                 value={shipmentId}
-                onChange={(e) => setShipment(e.target.value)}
+                onChange={(e) => { setShipment(e.target.value); setCarton(""); setLines([]); setSourceLines([]); setCheckedCarton(""); }}
                 required
               >
                 <option value="">Select original shipment</option>
@@ -2076,24 +2069,20 @@ export function ReturnsScreen(ctx: Context) {
               </select>
             </Field>
             <Field label="Original carton ID">
-              <input
-                value={cartonId}
-                onChange={(e) => {
-                  setCarton(e.target.value);
-                  const c = s.cartons.find((c) => c.id === e.target.value);
-                  if (c) setLines(JSON.stringify(parse(c.lines), null, 2));
-                }}
-                required
-              />
+              <input value={cartonId} disabled={finding} onChange={(e) => { setCarton(e.target.value); setCheckedCarton(""); setLines([]); setSourceLines([]); }} required />
             </Field>
-            <Field label="Actual returned line quantities (editable JSON)">
-              <textarea
-                className="code-input"
-                rows={7}
-                value={lines}
-                onChange={(e) => setLines(e.target.value)}
-              />
-            </Field>
+            <button type="button" className="secondary" disabled={!shipmentId || !cartonId.trim() || finding} onClick={async () => {
+              const requested = cartonId.trim();
+              setError(""); setFinding(true);
+              try {
+                const { carton } = await api("/cartons/" + encodeURIComponent(requested) + "/history");
+                const belongs = s.allocations.some((a) => a.shipmentId === shipmentId && a.cartonId === requested && a.active && a.state === "Departed");
+                if (!belongs) throw Error("This carton does not belong to the selected dispatched shipment.");
+                const original = parse<Line[]>(carton.lines);
+                setSourceLines(original); setLines(original.map((line) => ({ ...line, quantity: "0" }))); setCarton(requested); setCheckedCarton(requested);
+              } catch (e) { setError((e as Error).message); } finally { setFinding(false); }
+            }}>{finding ? "Finding…" : "Find carton contents"}</button>
+            {lines.length > 0 && <div className="return-quantities"><p>Enter the quantity returned for each item. Leave other items at 0.</p>{lines.map((line, i) => <Field key={i} label={(s.products.find((p) => p.sku === line.sku)?.name ?? line.sku) + " · " + line.sku + " (" + line.unit + ")"}><input type="number" min="0" max={Number(sourceLines[i].quantity)} step="any" value={line.quantity} onChange={(e) => setLines((previous) => previous.map((item, j) => i === j ? { ...item, quantity: e.target.value } : item))} required /><small>Original carton quantity: {sourceLines[i].quantity} {line.unit}</small></Field>)}</div>}
             <Field label="Reason">
               <input
                 value={reason}
@@ -2107,7 +2096,7 @@ export function ReturnsScreen(ctx: Context) {
                 value={condition}
                 onChange={(e) => setCondition(e.target.value)}
               >
-                <option>Uninspected</option>
+                <option value="Uninspected">Not checked yet</option>
                 <option>Sealed</option>
                 <option>Opened</option>
                 <option>Damaged</option>
@@ -2115,7 +2104,7 @@ export function ReturnsScreen(ctx: Context) {
             </Field>
             {error && <div className="notice error">{error}</div>}
             <button className="primary wide">
-              Record & quarantine returned goods
+              Save return & keep goods separate
             </button>
           </form>
         </Modal>
@@ -2129,8 +2118,8 @@ export function ReportsScreen(ctx: Context) {
     <>
       <Heading
         eyebrow="TRACEABLE FROM PACKING TO DEPARTURE"
-        title="Reports & audit"
-        detail="Append-only history of approvals, reservations, scans and corrections."
+        title="Reports"
+        detail="See who packed, checked, loaded, and changed each record."
         action={
           <button
             className="secondary"
@@ -2152,7 +2141,7 @@ export function ReportsScreen(ctx: Context) {
             }}
           >
             <FileDown size={16} />
-            Export current audit page
+            Download this history page
           </button>
         }
       />
@@ -2160,21 +2149,21 @@ export function ReportsScreen(ctx: Context) {
         <div className="metric">
           <span>Registered cartons</span>
           <div className="metric-value">{s.cartonTotal}</div>
-          <p>Operational identities</p>
+          <p>Registered cartons</p>
         </div>
         <div className="metric">
           <span>Trips departed</span>
           <div className="metric-value">
             {s.trips.filter((x) => x.state === "Departed").length}
           </div>
-          <p>Current query window</p>
+          <p>Shown on this page</p>
         </div>
         <div className="metric">
           <span>Returns quarantined</span>
           <div className="metric-value">
             {s.returns.filter((x) => x.state === "Quarantine").length}
           </div>
-          <p>Awaiting authorised disposition</p>
+          <p>Waiting for a decision</p>
         </div>
         <div className="metric">
           <span>Stock sync freshness</span>
@@ -2187,10 +2176,9 @@ export function ReportsScreen(ctx: Context) {
       <section className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Operational audit trail</h2>
+            <h2>Activity history</h2>
             <p>
-              Most recent 80 events. Export is protected against spreadsheet
-              formula injection.
+              The latest 80 actions are shown here. Download this page to keep a copy.
             </p>
           </div>
         </div>
@@ -2229,17 +2217,15 @@ export function ReportsScreen(ctx: Context) {
           </div>
         ) : (
           <Empty
-            title="Audit events will appear here"
-            detail="Approvals, scans and corrections are saved transactionally with their audit event."
+            title="No activity yet"
+            detail="Packing approvals, scans, and changes will appear here."
           />
         )}
       </section>
       <section className="panel panel-padding">
-        <h2>Accounting stock ≠ packed physical availability</h2>
+        <h2>Tally stock and packed cartons are different</h2>
         <p>
-          Scanning changes operational loading state. It never creates a Tally
-          stock deduction. Last synced Tally balance, pending movements and
-          accountant activity must be reconciled before enabling live posting.
+          Scanning records which cartons are loaded. It does not reduce stock in Tally. Accounts must check both records before invoices can be sent.
         </p>
         <table>
           <thead>

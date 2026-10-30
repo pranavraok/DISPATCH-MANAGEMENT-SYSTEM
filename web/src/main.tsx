@@ -51,6 +51,7 @@ import {
   ReportsScreen,
 } from "./screens";
 import { LoadingScreen } from "./scanner";
+import { brand, plainLabel } from "./brand";
 import "./style.css";
 export type Context = {
   s: State;
@@ -67,7 +68,7 @@ export function Badge({
   children: ReactNode;
   tone?: string;
 }) {
-  return <span className={"badge " + tone}>{children}</span>;
+  return <span className={"badge " + tone}>{typeof children === "string" ? plainLabel(children) : children}</span>;
 }
 export function Empty({ title, detail }: { title: string; detail: string }) {
   return (
@@ -126,15 +127,15 @@ export function Modal({
   );
 }
 const nav = [
-  ["overview", "Overview", LayoutDashboard],
-  ["packing", "Packed registration", Package],
+  ["overview", "Home", LayoutDashboard],
+  ["packing", "Packing", Package],
   ["cartons", "Cartons & labels", ClipboardCheck],
-  ["trips", "Dispatch trips", Truck],
-  ["loading", "Loading station", ScanLine],
+  ["trips", "Trips & customers", Truck],
+  ["loading", "Load cartons", ScanLine],
   ["billing", "Billing & Tally", ReceiptText],
-  ["returns", "Returns & corrections", RotateCcw],
-  ["reports", "Reports & audit", Activity],
-  ["setup", "Settings & connections", Settings],
+  ["returns", "Returns", RotateCcw],
+  ["reports", "Reports", Activity],
+  ["setup", "Settings", Settings],
 ] as const;
 function App() {
   const [user, setUser] = useState<Row | null>(null),
@@ -168,7 +169,7 @@ function App() {
       () =>
         refresh().catch(() =>
           setError(
-            "Connection interrupted. Displayed data may be stale. Loading requires a confirmed server response.",
+            "Connection lost. The numbers may be old. Wait for confirmation before loading a carton.",
           ),
         ),
       15000,
@@ -178,7 +179,7 @@ function App() {
   async function run(type: string, data: Row) {
     if (sample)
       throw Error(
-        "Read-only sample. Sign in to the connected API to save changes.",
+        "This is a sample. Sign in to save your work.",
       );
     setBusy(true);
     setError("");
@@ -186,7 +187,7 @@ function App() {
     try {
       const result = await client.send(request);
       await refresh().catch(() =>
-        setError("The change was saved. Refresh is unavailable; reload saved state before continuing."),
+        setError("Saved. Refresh the page to see the latest information."),
       );
       setToast(result.message ?? "Saved.");
       setTimeout(() => setToast(""), 6000);
@@ -235,16 +236,16 @@ function App() {
       <aside className={mobile ? "sidebar open" : "sidebar"}>
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
           <div className="brand-mark">
-            K<span>↗</span>
+            E
           </div>
           <div>
-            KRIYANTHA<small>DISPATCH CONTROL</small>
+            {brand.shortName}<small>GROUP OF INDUSTRIES</small>
           </div>
         </a>
         <div className="workspace">
-          <span className="workspace-icon">KV</span>
+          <span className="workspace-icon">EG</span>
           <div>
-            KR Vishwanath<small>Agarbatti Works</small>
+            {brand.business}<small>Dispatch</small>
           </div>
           <span className="workspace-dot" />
         </div>
@@ -290,7 +291,7 @@ function App() {
             <span className="avatar">{user.name[0]}</span>
             <div>
               {user.name}
-              <small>{user.roles.join(" · ")}</small>
+              <small>{user.roles.map(plainLabel).join(" · ")}</small>
             </div>
             <LogOut size={15} />
           </button>
@@ -307,14 +308,14 @@ function App() {
               <Menu />
             </button>
             <span className="breadcrumb">
-              Workspace <ChevronRight size={13} />
+              Dispatch <ChevronRight size={13} />
               <strong>{current[1]}</strong>
             </span>
           </div>
           <div className="top-actions">
             <span className={"connection " + (sample ? "muted" : "")}>
               <span className={"dot " + (sample ? "amber" : "green")} />
-              {sample ? "Sample workspace" : "Server connected"}
+              {sample ? "Sample workspace" : "Connected"}
             </span>
             <button
               className="icon-button"
@@ -331,8 +332,7 @@ function App() {
             <div className="sample-banner">
               <ShieldCheck size={17} />
               <span>
-                READ-ONLY SAMPLE · Fictional reference data. Changes are
-                disabled; this is not a connected warehouse.
+                SAMPLE ONLY · Try the screens here. Sign in to save your work.
               </span>
               <button
                 onClick={() => {
@@ -357,10 +357,10 @@ function App() {
           {screens[page]}
         </div>
         <footer className="app-footer">
-          <span>Built by Kriyantha Business Solutions</span>
+          <span>{brand.name}</span>
           <span>
             {sample
-              ? "Fictional data · No accounting activity"
+              ? "Sample data"
               : `Saved state · ${lastSync ? date(lastSync) : date(s.serverTime)}`}{" "}
             <span className="footer-version">v0.1 · Trial</span>
           </span>
@@ -372,7 +372,7 @@ function App() {
           {toast}
         </div>
       )}
-      {busy && <div className="saving">Saving to server…</div>}
+      {busy && <div className="saving">Saving…</div>}
     </div>
   );
 }
@@ -383,7 +383,7 @@ function Login({
   onLogin: (e: string, p: string) => Promise<void>;
   preview: () => void;
 }) {
-  const [email, setEmail] = useState("admin@kriyantha.test"),
+  const [email, setEmail] = useState(brand.email),
     [password, setPassword] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -393,11 +393,11 @@ function Login({
       .then((response) => {
         if (!response.ok)
           setConnectionNote(
-            "The application is deployed. Its cloud database connection is awaiting setup approval. Use the read-only sample to review the workspace.",
+            "Cannot connect to saved data. Please try again. You can still view the sample.",
           );
       })
       .catch(() =>
-        setConnectionNote("Connection unavailable. Retry when the service is reachable."),
+        setConnectionNote("Cannot connect. Please try again."),
       );
   }, []);
   return (
@@ -405,22 +405,21 @@ function Login({
       <section className="login-story">
         <a className="brand">
           <div className="brand-mark">
-            K<span>↗</span>
+            E
           </div>
           <div>
-            KRIYANTHA<small>BUSINESS SOLUTIONS</small>
+            {brand.shortName}<small>GROUP OF INDUSTRIES</small>
           </div>
         </a>
         <div>
-          <Badge tone="dark">PACKED. VERIFIED. DISPATCHED.</Badge>
+          <Badge tone="dark">PACK · CHECK · DISPATCH</Badge>
           <h1>
-            Every carton.
+            Dispatch made
             <br />
-            Accounted for.
+            simple.
           </h1>
           <p>
-            One clear path from packed stock to the loading bay, with the right
-            checks at every handover.
+            Record packed cartons, check labels, load the vehicle, and prepare billing.
           </p>
           <div className="login-flow">
             <span>
@@ -439,13 +438,13 @@ function Login({
             </span>
           </div>
         </div>
-        <small>Purpose-built for KR Vishwanath Agarbatti Works</small>
+        <small>{brand.name} · {brand.business}</small>
       </section>
       <section className="login-form">
-        <div className="eyebrow">DISPATCH CONTROL</div>
-        <h2>Welcome back.</h2>
+        <div className="eyebrow">DISPATCH</div>
+        <h2>Sign in</h2>
         {connectionNote && <div className="notice amber">{connectionNote}</div>}
-        <p>Sign in to your warehouse workspace.</p>
+        <p>Open your dispatch workspace.</p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -480,19 +479,18 @@ function Login({
           </Field>
           {error && <div className="notice error">{error}</div>}
           <button className="primary wide" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in to workspace"}
+            {busy ? "Signing in…" : "Sign in"}
             <ArrowRight size={17} />
           </button>
         </form>
-        <div className="login-divider">EXPLORE FIRST</div>
+        <div className="login-divider">VIEW THE SCREENS</div>
         <button className="secondary wide" onClick={preview}>
-          Open read-only sample <ArrowUpRight size={16} />
+          View sample <ArrowUpRight size={16} />
         </button>
         <div className="login-note">
           <ShieldCheck size={19} />
           <p>
-            Account credentials come from your administrator. The sample
-            contains fictional reference data and cannot post to Tally.
+            Ask your administrator for your login. The sample uses made-up data.
           </p>
         </div>
       </section>
@@ -501,253 +499,38 @@ function Login({
 }
 function Overview(ctx: Context) {
   const { s, navigate } = ctx;
-  const count = (state: string) =>
-    s.counts.find((x) => x.state === state)?.count ?? 0;
-  const cartons = s.cartons;
-  const groups = s.manifests.flatMap((m) => parse<Group[]>(m.groups));
-  const described = groups.reduce((n, g) => n + g.count, 0);
+  const count = (state: string) => s.counts.find((x) => x.state === state)?.count ?? 0;
   return (
     <>
       <div className="page-heading">
-        <div>
-          <div className="eyebrow">YOUR OPERATIONS, AT A GLANCE</div>
-          <h1>
-            Dispatch overview<span className="heading-dot">.</span>
-          </h1>
-          <p>From packed stock to a verified departure.</p>
-        </div>
-        <button className="primary" onClick={() => navigate("packing")}>
-          <Plus size={17} />
-          Register packed stock
-        </button>
+        <div><h1>Home</h1><p>{brand.name} · Dispatch</p></div>
+        <button className="primary" onClick={() => navigate("packing")}><Plus size={17} />Add packed cartons</button>
       </div>
       <div className="metrics">
-        <Metric
-          title="Registered cartons"
-          value={number(s.cartonTotal)}
-          detail={
-            described
-              ? `${number(described)} described in recent manifests`
-              : "Ready when you are"
-          }
-          icon={<Package />}
-        />
-        <Metric
-          title="Available to allocate"
-          value={number(count("Available"))}
-          detail={`${cartons.filter((c) => c.verified && c.state === "Available").length} verified in current page`}
-          icon={<Box />}
-        />
-        <Metric
-          title="Currently loaded"
-          value={number(count("Loaded"))}
-          detail={`${s.trips.filter((t) => t.state === "Open").length} open vehicle trips`}
-          icon={<Truck />}
-        />
-        <Metric
-          title="Needs attention"
-          value={number(
-            s.jobs.filter((j) => j.state !== "Confirmed").length +
-              s.manifests.filter((m) => m.state === "Draft").length,
-          )}
-          detail="Approvals & invoice exceptions"
-          icon={<ClipboardCheck />}
-          attention
-        />
+        <Metric title="Total cartons" value={number(s.cartonTotal)} detail="Registered in this warehouse" icon={<Package />} />
+        <Metric title="Available cartons" value={number(count("Available"))} detail="Check labels before reserving" icon={<Box />} />
+        <Metric title="Loaded cartons" value={number(count("Loaded"))} detail="Waiting for departure" icon={<Truck />} />
+        <Metric title="Lists to approve" value={number(s.manifests.filter((m) => m.state === "Draft").length)} detail="Supervisor check needed" icon={<ClipboardCheck />} />
       </div>
-      <div className="dashboard-grid">
-        <section className="panel journey-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>The dispatch path</h2>
-              <p>A clear handover at every stage.</p>
-            </div>
-            <Badge tone="sage">Case 2 workflow</Badge>
-          </div>
-          <div className="journey">
-            {[
-              [
-                "Register packed stock",
-                "Capture the actual contents of each physical group.",
-                "packing",
-                Package,
-              ],
-              [
-                "Label & verify",
-                "Unique QRs, attached and physically checked.",
-                "cartons",
-                ScanLine,
-              ],
-              [
-                "Allocate & load",
-                "The right cartons, customer and vehicle.",
-                "trips",
-                Truck,
-              ],
-              [
-                "Approve & invoice",
-                "Reviewed billing, confirmed in Tally.",
-                "billing",
-                ReceiptText,
-              ],
-            ].map(([title, detail, target, Icon], i) => {
-              const I = Icon as typeof Package;
-              return (
-                <button
-                  key={String(title)}
-                  onClick={() => navigate(String(target))}
-                >
-                  <span className="journey-icon">
-                    <I size={20} />
-                  </span>
-                  <div>
-                    <span className="step-number">0{i + 1}</span>
-                    <h3>{String(title)}</h3>
-                    <p>{String(detail)}</p>
-                  </div>
-                  <ArrowUpRight size={17} />
-                </button>
-              );
-            })}
-          </div>
-          <div className="journey-note">
-            <ShieldCheck size={17} />
-            Acceptance is confirmed by the server. A scanner beep alone does not
-            confirm loading.
-          </div>
-        </section>
-        <section className="panel readiness">
-          <div className="panel-heading">
-            <div>
-              <h2>Ready for your first load?</h2>
-              <p>Keep the trial simple. Keep the checks real.</p>
-            </div>
-          </div>
-          <div className="readiness-art">
-            <div className="scan-corners">
-              <Package size={55} strokeWidth={1} />
-              <span className="scan-line" />
-            </div>
-            <span className="art-label">ONE CARTON. ONE IDENTITY.</span>
-          </div>
-          <div className="readiness-item">
-            <span className="check-circle">
-              <Check size={13} />
-            </span>
-            Unique carton identities
-          </div>
-          <div className="readiness-item">
-            <span className="check-circle">
-              <Check size={13} />
-            </span>
-            Mixed-product cartons supported
-          </div>
-          <div className="readiness-item">
-            <span className="pending-circle">3</span>Pair Tally & validate
-            invoice mapping
-          </div>
-          <button className="text-link" onClick={() => navigate("setup")}>
-            Open connection setup <ArrowRight size={15} />
-          </button>
-        </section>
-      </div>
-      <div className="dashboard-grid lower">
-        <section className="panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Recent packed manifests</h2>
-              <p>Review contents before any labels are attached.</p>
-            </div>
-            <button className="text-link" onClick={() => navigate("packing")}>
-              View all <ArrowUpRight size={15} />
-            </button>
-          </div>
-          {s.manifests.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>MANIFEST</th>
-                    <th>CARTONS</th>
-                    <th>STATUS</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.manifests.slice(0, 4).map((m) => (
-                    <tr key={m.id}>
-                      <td>
-                        <strong>{m.name}</strong>
-                        <small>{m.id}</small>
-                      </td>
-                      <td>
-                        {parse<Group[]>(m.groups).reduce(
-                          (n, g) => n + g.count,
-                          0,
-                        )}
-                      </td>
-                      <td>
-                        <Badge tone={m.state === "Approved" ? "sage" : "amber"}>
-                          {m.state === "Draft" ? "Needs approval" : m.state}
-                        </Badge>
-                      </td>
-                      <td>
-                        <button
-                          className="icon-button"
-                          onClick={() => navigate("packing")}
-                          aria-label={"Open " + m.name}
-                        >
-                          <ArrowUpRight size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <Empty
-              title="Your first manifest starts here"
-              detail="Register already-packed goods, then have a supervisor review them."
-            />
-          )}
-        </section>
-        <section className="panel tally-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Tally & accounting</h2>
-              <p>A separate, controlled handover.</p>
-            </div>
-            <span className="dot amber" />
-          </div>
-          <div className="tally-status">
-            <ReceiptText size={24} />
-            <div>
-              <h3>Mapping needs validation</h3>
-              <p>
-                Operational work can continue. Invoice posting stays blocked
-                until your actual accounting pattern is verified.
-              </p>
-            </div>
-          </div>
-          <div className="tally-meta">
-            <span>Last stock sync</span>
-            <strong>{date(s.mapping.syncedAt)}</strong>
-          </div>
-          <div className="tally-meta">
-            <span>Posting jobs pending</span>
-            <strong>
-              {s.jobs.filter((j) => j.state !== "Confirmed").length}
-            </strong>
-          </div>
-          <button
-            className="secondary wide"
-            onClick={() => navigate("billing")}
-          >
-            Review billing & connections <ArrowRight size={15} />
-          </button>
-        </section>
-      </div>
+      <section className="panel daily-steps">
+        <div className="panel-heading"><div><h2>What do you need to do?</h2><p>Follow these steps for each dispatch.</p></div></div>
+        <div className="quick-actions">
+          {[
+            ["1", "Packing", "Add the cartons and what is inside.", "packing", Package],
+            ["2", "Labels", "Print, attach, and check each label.", "cartons", ScanLine],
+            ["3", "Trips & loading", "Choose a customer and vehicle, then scan the cartons.", "trips", Truck],
+            ["4", "Billing", "Check prices and approve the bill.", "billing", ReceiptText],
+          ].map(([n, title, detail, target, Icon]) => {
+            const I = Icon as typeof Package;
+            return <button key={String(n)} onClick={() => navigate(String(target))}><span className="step-count">{String(n)}</span><I size={22} /><strong>{String(title)}</strong><p>{String(detail)}</p><ArrowRight size={16} /></button>;
+          })}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Recent packing lists</h2><p>Check the contents before printing labels.</p></div><button className="text-link" onClick={() => navigate("packing")}>View all <ArrowRight size={15} /></button></div>
+        {s.manifests.length ? <div className="table-wrap"><table><thead><tr><th>PACKING LIST</th><th>CARTONS</th><th>STATUS</th><th /></tr></thead><tbody>{s.manifests.slice(0, 4).map((m) => <tr key={m.id}><td><strong>{m.name}</strong></td><td>{parse<Group[]>(m.groups).reduce((n, g) => n + g.count, 0)}</td><td><Badge tone={m.state === "Approved" ? "sage" : "amber"}>{m.state === "Draft" ? "Needs approval" : m.state}</Badge></td><td><button className="text-link" onClick={() => navigate("packing")} aria-label={"Open " + m.name}>Open <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div> : <Empty title="No packing lists yet" detail="Add the packed cartons to get started." />}
+      </section>
+      <div className="notice amber"><ReceiptText size={18} /><div><strong>Tally setup is still needed.</strong> Packing and loading are available. Sending invoices to Tally stays off until your accountant checks the connection. <button className="text-link" onClick={() => navigate("setup")}>Open settings <ArrowRight size={14} /></button></div></div>
     </>
   );
 }

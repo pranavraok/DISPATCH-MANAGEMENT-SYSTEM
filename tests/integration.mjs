@@ -28,7 +28,7 @@ async function test(name, fn) {
     throw e;
   }
 }
-async function login(email = "admin@kriyantha.test", pw = password) {
+async function login(email = "admin@electrogroup.test", pw = password) {
   const r = await fetch(base + "/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -58,7 +58,7 @@ async function session(email, pw) {
     user: data.user,
   };
 }
-const admin = await session("admin@kriyantha.test", password);
+const admin = await session("admin@electrogroup.test", password);
 async function call(auth, path, method = "GET", data, csrf = true) {
   const r = await fetch(base + "/api" + path, {
     method,
@@ -285,7 +285,7 @@ try {
       destination: "Mysuru",
       ids: [c.id],
     };
-    const second = await session("admin@kriyantha.test", password);
+    const second = await session("admin@electrogroup.test", password);
     const r = await Promise.all([
       cmd("allocate", payload),
       cmd("allocate", payload, second),
@@ -383,7 +383,7 @@ try {
     assert.deepEqual(await ok("scan", scan(), admin, id), r);
   });
   await test("authoritative state survives browser refresh/new session", async () => {
-    const fresh = await session("admin@kriyantha.test", password);
+    const fresh = await session("admin@electrogroup.test", password);
     const st = await call(fresh, "/state");
     assert.equal(
       st.data.cartons.find((c) => c.id === mixed.id).state,
@@ -580,7 +580,7 @@ try {
         await assert.rejects(db.query(query), /append-only/);
     });
     await test("session expiry stops access", async () => {
-      const expired = await session("admin@kriyantha.test", password);
+      const expired = await session("admin@electrogroup.test", password);
       const tokenHash = (await import("node:crypto"))
         .createHash("sha256")
         .update(expired.cookie.split("=")[1])

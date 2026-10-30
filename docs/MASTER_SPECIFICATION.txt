@@ -1,3 +1,8 @@
+CURRENT CONFIRMED CHANGE — 30 OCTOBER 2026
+The application is for Electro Group of Industries (Electrotech Services). Use this branding throughout the app, labels, documents, connector, and deployment. Use simple English and straightforward screens. All dispatch controls and earlier workflow requirements continue to apply. This correction overrides the previous branding references in the original prompt below. Sample product identities and quantities are test fixtures, not the company’s catalogue.
+
+ORIGINAL MASTER PROMPT (retained for traceability)
+
 You are my senior full-stack engineer and warehouse/Tally integration engineer. Build a working Case 2 carton-registration, QR-labelling, dispatch-verification and billing application for Kriyantha Business Solutions and its client, KR Vishwanath Agarbatti Works.
 
 This is an implementation request. Create the application, backend, database migrations, Windows connector, tests and operating instructions. Work in complete, runnable stages and keep a checklist. A visual prototype or architecture explanation alone does not satisfy this request.

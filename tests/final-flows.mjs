@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {Client} from 'pg';
 const base=process.env.DISPATCH_TEST_URL??'http://127.0.0.1:5080';
 const db=new Client({connectionString:process.env.DISPATCH_TEST_DATABASE});await db.connect();
-const res=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@kriyantha.test',password:process.env.DISPATCH_TEST_PASSWORD})});const login=await res.json();assert.equal(res.status,200);const headers={Cookie:res.headers.get('set-cookie').split(';')[0],'Content-Type':'application/json','X-CSRF-Token':login.csrf};
+const res=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'admin@electrogroup.test',password:process.env.DISPATCH_TEST_PASSWORD})});const login=await res.json();assert.equal(res.status,200);const headers={Cookie:res.headers.get('set-cookie').split(';')[0],'Content-Type':'application/json','X-CSRF-Token':login.csrf};
 const state=()=>fetch(base+'/api/state',{headers}).then(r=>r.json());
 async function command(type,data){const r=await fetch(base+'/api/commands',{method:'POST',headers,body:JSON.stringify({requestId:randomUUID(),type,data})});return {status:r.status,data:await r.json()};}
 async function ok(type,data){const r=await command(type,data);assert.equal(r.status,200,JSON.stringify(r.data));return r.data;}

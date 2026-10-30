@@ -22,7 +22,7 @@ export function hasPendingScan() {
     return !!saved?.envelope?.requestId;
   } catch { return false; }
 }
-export function LoadingScreen(ctx: Context) {
+export function DispatchScanScreen(ctx: Context) {
   const { all: s, sample, run, refresh } = ctx;
   const [shipmentId, setShipmentId] = useState(ctx.work.kind === "shipment" ? ctx.work.id : ""),
     [station, setStation] = useState("LOADING-PC-01"),
@@ -71,7 +71,7 @@ export function LoadingScreen(ctx: Context) {
   useEffect(() => {
     const warnPausedInput = (event: KeyboardEvent) => {
       if (started && (pending || !focused) && (event.key === 'Enter' || event.key.length === 1) && !event.ctrlKey && !event.metaKey) {
-        setError('Scan not saved. Loading is paused or the scan box is not selected. Keep the carton aside and scan again when ready.');
+        setError('Scanning is paused or the scan box is not selected. Check any pending result, then select the scan box before continuing.');
       }
     };
     window.addEventListener('keydown', warnPausedInput, true);
@@ -208,7 +208,7 @@ export function LoadingScreen(ctx: Context) {
     } catch (e) {
       setError(
         (e as Error).message +
-          " Use Try this scan again if no result was saved.",
+          " Use Retry saved scan if no result was saved. You do not need to scan the carton again.",
       );
     }
   }
@@ -231,11 +231,10 @@ export function LoadingScreen(ctx: Context) {
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">LIVE CARTON VERIFICATION</div>
           <h1>
-            Load cartons<span className="heading-dot">.</span>
+            Labels
           </h1>
-          <p>Choose the customer shipment, start loading, then scan one carton at a time.</p>
+          <p>Scan each carton once here while loading it onto the selected vehicle.</p>
         </div>
         <Badge tone={online ? "sage" : "red"}>
           {online ? "Browser online" : "Connection unavailable"}
@@ -243,7 +242,7 @@ export function LoadingScreen(ctx: Context) {
       </div>
       <div className="notice amber">
         <AlertTriangle size={18} />
-        Use the D-5015 scanner in live mode with Enter. Wait for Loaded on this screen before moving to the next carton. Ask a supervisor before using scans saved in scanner memory.
+        This is the only scanning step. Choose the customer shipment, then scan each carton as it goes onto the vehicle. Wait for Loaded on screen before moving to the next carton.
       </div>
       <section className="panel station-context">
         <Field label="Customer shipment">
@@ -259,7 +258,7 @@ export function LoadingScreen(ctx: Context) {
             }}
           >
             <option value="">Choose a shipment</option>
-            <ShipmentChoices ctx={ctx} shipments={ctx.s.shipments.filter((x) => !x.loadApproved && x.state !== "Cancelled")} />
+            <ShipmentChoices ctx={ctx} shipments={ctx.s.shipments.filter((x) => (!x.loadApproved || x.id === shipmentId) && x.state !== "Cancelled")} />
           </select>
         </Field>
         <Field label="Workstation">
@@ -271,11 +270,11 @@ export function LoadingScreen(ctx: Context) {
         </Field>
         <button
           className="primary"
-          disabled={!!pending || sample}
+          disabled={!!pending || sample || !shipmentId || !!shipment?.loadApproved}
           onClick={start}
         >
           <Volume2 size={18} />
-          Start loading & turn on sound
+          Start scanning & turn on sound
         </button>
       </section>
       <div className="scanner-layout">
@@ -293,7 +292,7 @@ export function LoadingScreen(ctx: Context) {
                   ? focused
                     ? "Scanner field ready"
                     : "Click the scan box to continue"
-                  : "Choose a shipment, then start loading"}
+                  : shipment?.loadApproved ? "Load approved" : "Choose a shipment, then start scanning"}
             </strong>
             <button
               className="text-link"
@@ -315,7 +314,7 @@ export function LoadingScreen(ctx: Context) {
             <h2>{result ? plainLabel(result.outcome) : "Ready to scan"}</h2>
             <p>
               {result?.message ??
-                "Select your customer shipment and start loading."}
+                (shipment?.loadApproved ? "This load is approved. Continue to Billing." : "Select your customer shipment and start scanning.")}
             </p>
             {result?.id && <code>{result.id}</code>}
           </div>
@@ -337,7 +336,7 @@ export function LoadingScreen(ctx: Context) {
               value={scan}
               autoComplete="off"
               maxLength={161}
-              disabled={!started || !!pending || !online || sample}
+              disabled={!started || !!pending || !online || sample || !!shipment?.loadApproved}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onChange={(e) => setScan(e.target.value)}
@@ -372,7 +371,7 @@ export function LoadingScreen(ctx: Context) {
                   Check saved result
                 </button>
                 <button className="secondary" onClick={retry}>
-                  Try this scan again
+                  Retry saved scan
                 </button>
               </div>
             </div>
@@ -394,6 +393,11 @@ export function LoadingScreen(ctx: Context) {
             <span>/ {allocations.length}</span>
           </div>
           <p>cartons loaded and saved</p>
+          {shipment && <div className="scan-next-action">{shipment.loadApproved ? <button className="primary" onClick={() => ctx.navigate("billing")}>Review billing</button> : <button className="secondary" disabled={!!pending || allocations.length === 0 || loaded.length !== allocations.length || sample || !ctx.user.roles.some((role: string) => ["Admin", "DispatchSupervisor"].includes(role))} onClick={async () => {
+            if (!window.confirm("I checked that all reserved cartons are physically loaded on this vehicle.")) return;
+            try { await run("approveLoad", { id: shipment.id, physicalConfirmed: true }); setStarted(false); setResult(null); }
+            catch (e) { setError((e as Error).message); }
+          }}>Approve load</button>}</div>}
           <div className="progress">
             <span
               style={{

@@ -26,7 +26,7 @@ For native Windows development, run the API on 5080 with a PostgreSQL connection
 
 - PostgreSQL/EF migrations, HttpOnly sessions, CSRF, server-side permissions, company scope, append-only audit and durable request/outbox records.
 - Packed drafts and strict all-or-nothing CSV/.xlsx preview, grouped/individual formats, physical approval and unique carton creation.
-- Genuine QR A4 PDF jobs, revision-aware IDs, reasoned reprints, separate attachment and supervisor scan verification, holds and API content correction/repack.
+- Genuine QR A4 PDF jobs, revision-aware IDs, reasoned reprints, supervisor confirmation of labels and contents without scanning, holds and API content correction/repack. Cartons are scanned once during loading under Labels > Scan for dispatch.
 - Partial reservations, multi-customer vehicle trips, station-bound loading, atomic mixed-carton acceptance, duplicate/race protection, uncertain-response recovery and audited unloading.
 - Decimal billing revisions with authorised manual rates, discounts/charges and reasons. Unresolved tax/stock/voucher mapping blocks Tally posting.
 - Separate Windows connector with CurrentUser DPAPI pairing, exact test-company XML diagnostics, safe parsing, reconnect and journal guard fixtures. Production posting adapter remains unimplemented.

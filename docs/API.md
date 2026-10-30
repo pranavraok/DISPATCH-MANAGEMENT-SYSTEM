@@ -16,8 +16,8 @@ Keep the same requestId **and exact body** after an uncertain response. GET /req
 | approveManifest | id, physicalConfirmed=true | PackingSupervisor |
 | createLabels | ids[], reason | PackingClerk / PackingSupervisor |
 | labelStatus | id, state, reason | PackingClerk / PackingSupervisor |
-| attachLabels | ids[], physicalConfirmed=true | PackingClerk / PackingSupervisor |
-| verifyCarton | qr, physicalConfirmed=true | PackingSupervisor |
+| attachLabels | ids[], physicalConfirmed=true, contentsConfirmed=true, revisions[{id,revision}] | PackingSupervisor |
+| verifyCarton | Retired; returns 400 directing the operator to the one-scan workflow | No writes |
 | holdCarton | id, held, reason | PackingSupervisor / DispatchSupervisor |
 | reviseCarton | id, lines[], reason | PackingSupervisor |
 | repack | id, groups[], physicalConfirmed=true, reason | PackingSupervisor |

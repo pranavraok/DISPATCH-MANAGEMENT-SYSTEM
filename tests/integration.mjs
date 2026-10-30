@@ -246,20 +246,21 @@ try {
       10,
     );
   });
-  await test("attachment and content verification are separate", async () => {
+  await test("supervisor confirms labels and contents without a verification scan", async () => {
+    assert.equal((await cmd("attachLabels", { ids: cartons.map((c) => c.id), physicalConfirmed: false })).status, 400);
     await ok("attachLabels", {
       ids: cartons.map((c) => c.id),
       physicalConfirmed: true,
+      contentsConfirmed: true,
+      revisions: cartons.map((c) => ({ id: c.id, revision: c.revision })),
     });
-    for (const c of cartons)
-      await ok("verifyCarton", {
-        qr: `K1|demo|${c.id}|1`,
-        physicalConfirmed: true,
-      });
     assert.equal(
       (await state()).cartons.find((c) => c.id === mixed.id).verified,
       true,
     );
+  });
+  await test("the retired verification scan cannot be used", async () => {
+    assert.equal((await cmd("verifyCarton", { qr: `K1|demo|${mixed.id}|1`, physicalConfirmed: true })).status, 400);
   });
   await test("held cartons cannot be reserved", async () => {
     const c = cartons.find((c) => c.id !== mixed.id);

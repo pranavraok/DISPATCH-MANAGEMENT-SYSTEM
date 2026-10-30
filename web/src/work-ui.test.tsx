@@ -60,7 +60,8 @@ describe("shipment grouping across sidebar pages", () => {
     navigate("Billing");
     await screen.findByText("JOB-SHIP-B");
     expect(screen.queryByText("JOB-SHIP-A")).toBeNull();
-    navigate("Loading");
+    navigate("Labels");
+    fireEvent.click(screen.getByRole("button", { name: "Scan for dispatch" }));
     await screen.findByLabelText("Customer shipment");
     expect((screen.getByLabelText("Customer shipment") as HTMLSelectElement).value).toBe("SHIP-B");
     expect(new URLSearchParams(window.location.search).get("work")).toBe("shipment:SHIP-B");

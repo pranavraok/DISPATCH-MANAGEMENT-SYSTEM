@@ -8,6 +8,7 @@ namespace Dispatch;
 public record Command(string RequestId, string Type, JsonElement Data);
 public record GroupDraft(string Name, string WarehouseId, string? CustomerId, string Notes, PackedGroup[] Groups, string? Id = null, int Version = 0);
 public record RateLine(string Sku, decimal Rate, decimal DiscountPercent);
+public record LabelCheck(string Id, int Revision);
 public record BillDraft(string ShipmentId, RateLine[] Rates, decimal Freight, decimal OtherCharges, string Reason, string Terms, int Version);
 public static class Permissions
 {
@@ -81,7 +82,7 @@ public sealed class Operations(DispatchDb db)
                     var groups = Json.Read<PackedGroup[]>(m.Groups); await ValidateGroups(groups);
                     foreach (var group in groups) for (var i = 0; i < group.Count; i++) db.Cartons.Add(new Carton { Id = NewId("CT-"), CompanyId = company, ManifestId = m.Id, WarehouseId = m.WarehouseId, CustomerId = m.CustomerId, Marking = group.Marking, Lines = Json.Write(await Normalize(group.Lines)) });
                     m.State = "Approved"; m.ApprovedBy = actor.Id; m.ApprovedAt = DateTimeOffset.UtcNow; m.Version++;
-                    return new { id = m.Id, count = groups.Sum(g => g.Count), message = "Cartons created. Print the labels, attach them, then check each carton." };
+                    return new { id = m.Id, count = groups.Sum(g => g.Count), message = "Cartons created. Print and attach labels, then ask a supervisor to confirm labels and contents without scanning." };
                 }
             case "createLabels":
                 {
@@ -97,15 +98,16 @@ public sealed class Operations(DispatchDb db)
                 }
             case "attachLabels":
                 {
-                    Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); Check(Flag(d, "physicalConfirmed"), "Confirm labels are physically attached to the correct boxes.");
-                    var cartons = await Selected(d); foreach (var c in cartons) { Check(c.State == "Available" && !c.Held, "Only available, unheld cartons may be labelled."); c.Attached = true; }
-                    return new { message = $"Attachment recorded for {cartons.Count} cartons. Scan verification is next." };
+                    Permissions.Require(actor, "PackingSupervisor"); Check(Flag(d, "physicalConfirmed") && Flag(d, "contentsConfirmed"), "A supervisor must confirm both matching labels and actual carton contents. Reload Labels if you are using the older screen.");
+                    var cartons = await Selected(d); Check(d.TryGetProperty("revisions", out var revisionInput) && revisionInput.ValueKind == JsonValueKind.Array, "Reload Labels and confirm the current carton versions.");
+                    var expected = Json.Read<LabelCheck[]>(revisionInput); Check(expected.Length == cartons.Count && expected.Select(x => x.Id).Distinct().Count() == cartons.Count, "Reload Labels and confirm the current carton versions.", 409);
+                    var versions = expected.ToDictionary(x => x.Id, x => x.Revision); Check(cartons.All(c => versions.TryGetValue(c.Id, out var revision) && revision == c.Revision), "A carton changed after it was shown. Reload Labels and check the updated contents and label.", 409);
+                    foreach (var c in cartons) { Check(c.State == "Available" && !c.Held, "Only available, unheld cartons may be checked."); c.Attached = true; c.Verified = true; c.VerifiedBy = actor.Id; c.VerifiedAt = DateTimeOffset.UtcNow; }
+                    return new { message = $"Labels and contents confirmed for {cartons.Count} cartons. Reserve them for a shipment, then scan once under Labels while loading." };
                 }
             case "verifyCarton":
                 {
-                    Permissions.Require(actor, "PackingSupervisor"); Check(Flag(d, "physicalConfirmed"), "Confirm physical identity and actual contents."); var c = await ResolveQr(Str(d, "qr"));
-                    Check(c.Attached && c.State == "Available" && !c.Held, "Attach the current label and clear holds before verification."); c.Verified = true; c.VerifiedBy = actor.Id; c.VerifiedAt = DateTimeOffset.UtcNow;
-                    return new { id = c.Id, message = "Carton label and contents checked." };
+                    throw new RuleException("The separate carton-check scan has been removed. A supervisor confirms labels and contents without scanning. Scan once in Labels > Scan for dispatch while loading.");
                 }
             case "holdCarton":
                 {
@@ -134,7 +136,7 @@ public sealed class Operations(DispatchDb db)
             case "allocate":
                 {
                     Permissions.Require(actor, "DispatchSupervisor"); var trip = await Get<Trip>(Str(d, "tripId")); Check(trip.State == "Open", "Trip has already departed."); var cust = await Get<Customer>(Str(d, "customerId")); Check(Str(d, "destination").Length >= 3, "Delivery destination required."); var cartons = await Selected(d);
-                    Check(cartons.All(c => c.Verified && c.Attached && !c.Held && c.State == "Available"), "Every selected carton must be verified, unheld and available."); Check(cartons.Select(c => c.WarehouseId).Distinct().Count() == 1, "Select one warehouse per shipment."); Check(cartons.All(c => c.CustomerId == null || c.CustomerId == cust.Id), "Cartons assigned to another customer cannot be allocated.");
+                    Check(cartons.All(c => c.Verified && c.Attached && !c.Held && c.State == "Available"), "Every selected carton must have its labels and contents confirmed, be unheld and available."); Check(cartons.Select(c => c.WarehouseId).Distinct().Count() == 1, "Select one warehouse per shipment."); Check(cartons.All(c => c.CustomerId == null || c.CustomerId == cust.Id), "Cartons assigned to another customer cannot be allocated.");
                     var s = new Shipment { Id = NewId("SH-"), CompanyId = company, TripId = trip.Id, CustomerId = cust.Id, WarehouseId = cartons[0].WarehouseId, Destination = Str(d, "destination") }; db.Shipments.Add(s);
                     foreach (var c in cartons) { c.State = "Reserved"; db.Allocations.Add(new Allocation { CompanyId = company, ShipmentId = s.Id, CartonId = c.Id }); }
                     return new { id = s.Id, message = $"{cartons.Count} cartons reserved for {cust.Name}. Remaining packed cartons stay available." };

@@ -49,7 +49,7 @@ import {
   ReturnsScreen,
   ReportsScreen,
 } from "./screens";
-import { LoadingScreen, hasPendingScan } from "./scanner";
+import { hasPendingScan } from "./scanner";
 import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
 import { WorkSelector, ShipmentOverview } from "./work-ui";
 import { brand, plainLabel } from "./brand";
@@ -134,9 +134,8 @@ export function Modal({
 const nav = [
   ["overview", "Home", LayoutDashboard],
   ["packing", "Packing", Package],
-  ["cartons", "Labels", ClipboardCheck],
   ["trips", "Trips", Truck],
-  ["loading", "Loading", ScanLine],
+  ["cartons", "Labels", ClipboardCheck],
   ["billing", "Billing", ReceiptText],
   ["returns", "Returns", RotateCcw],
   ["reports", "Reports", Activity],
@@ -144,7 +143,7 @@ const nav = [
 ] as const;
 function savedPage() {
   const page = window.location.hash.slice(1);
-  return nav.some(([id]) => id === page) ? page : "overview";
+  return page === "loading" ? "cartons" : nav.some(([id]) => id === page) ? page : "overview";
 }
 export function App() {
   const [user, setUser] = useState<Row | null>(null),
@@ -231,7 +230,7 @@ export function App() {
   function selectWork(next: WorkScope) {
     if (workKey(next) === selectionKey) return true;
     if (hasPendingScan()) {
-      setError("Check the last scan result on Load cartons before changing the selected work.");
+      setError("Check the last scan result in Labels > Scan for dispatch before changing the selected work.");
       return false;
     }
     const url = new URL(window.location.href);
@@ -243,6 +242,14 @@ export function App() {
     return true;
   }
   function navigate(next: string) {
+    if (next === "loading" || next === "printLabels") {
+      const url = new URL(window.location.href);
+      if (next === "loading") url.searchParams.set("labels", "scan");
+      else url.searchParams.delete("labels");
+      window.history.replaceState(null, "", url.pathname + url.search + "#cartons");
+      setPage("cartons");
+      return;
+    }
     if (!nav.some(([id]) => id === next)) return;
     window.history.replaceState(null, "", window.location.pathname + window.location.search + "#" + next);
     setPage(next);
@@ -334,7 +341,6 @@ export function App() {
     packing: <PackingScreen key={selectionKey} {...ctx} />,
     cartons: <CartonScreen key={selectionKey} {...ctx} />,
     trips: <TripsScreen key={selectionKey} {...ctx} />,
-    loading: <LoadingScreen {...ctx} />,
     billing: <BillingScreen key={selectionKey} {...ctx} />,
     returns: <ReturnsScreen key={selectionKey} {...ctx} />,
     reports: <ReportsScreen {...ctx} />,
@@ -355,8 +361,8 @@ export function App() {
         <p className="sidebar-caption">Dispatch management</p>
         <nav aria-label="Main navigation">
           {[
-            ["Prepare", ["overview", "packing", "cartons"]],
-            ["Dispatch", ["trips", "loading", "billing"]],
+            ["Prepare", ["overview", "packing"]],
+            ["Dispatch", ["trips", "cartons", "billing"]],
             ["History", ["returns", "reports"]],
             ["Company", ["setup"]],
           ].map(([label, ids]) => <div className="nav-group" key={String(label)}><div className="nav-label">{label}</div>{nav.filter(([id]) => (ids as string[]).includes(id)).map(([id, label, Icon]) => (
@@ -622,7 +628,7 @@ function Overview(ctx: Context) {
       </div>
       <nav className="task-flow" aria-label="Dispatch steps">
           {[
-            ["Packing", "packing"], ["Labels", "cartons"], ["Trips", "trips"], ["Loading", "loading"], ["Billing", "billing"],
+            ["Packing", "packing"], ["Print labels", "printLabels"], ["Trips", "trips"], ["Scan in Labels", "loading"], ["Billing", "billing"],
           ].map(([title, target], i) => <button key={target} onClick={() => navigate(target)}><span>{i + 1}</span>{title}<ChevronRight size={14} /></button>)}
       </nav>
       <ShipmentOverview ctx={ctx} />

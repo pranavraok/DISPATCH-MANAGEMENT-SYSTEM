@@ -93,6 +93,10 @@ td small { color: #6f7d68; font-size: 11px; }
 .text-link { font-size: 12px; }
 summary:focus-visible { outline: 3px solid #7eaa67; outline-offset: -3px; }
 .mobile-backdrop { display: none; }
+.label-tasks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+.label-tasks button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); font-size: 13px; }
+.label-tasks button[aria-pressed="true"] { background: var(--forest); color: #fff; border-color: var(--forest); }
+.scan-next-action { padding: 16px 20px 0; }
 
 @media (max-width: 1100px) {
   .work-selector select { max-width: 100%; }

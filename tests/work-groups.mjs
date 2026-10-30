@@ -37,8 +37,7 @@ try {
   const cartons = (await db.query('SELECT "Id" AS id FROM "Cartons" WHERE "ManifestId"=$1 ORDER BY "Id"', [packing.id])).rows;
   assert.equal(cartons.length, 5);
   const labels = await command(admin, "createLabels", { ids: ids(cartons), reason: "Fictional shared print job" });
-  await command(admin, "attachLabels", { ids: ids(cartons), physicalConfirmed: true });
-  for (const c of cartons) await command(admin, "verifyCarton", { qr: `K1|demo|${c.id}|1`, physicalConfirmed: true });
+  await command(admin, "attachLabels", { ids: ids(cartons), physicalConfirmed: true, contentsConfirmed: true, revisions: cartons.map((c) => ({ id: c.id, revision: 1 })) });
   const tripA = await command(admin, "createTrip", { vehicle: "QA-ALPHA-" + run, driver: "Grouping test driver" });
   const tripB = await command(admin, "createTrip", { vehicle: "QA-BETA-" + run, driver: "Grouping test driver" });
   const a = await command(admin, "allocate", { tripId: tripA.id, customerId: "ravi", destination: "Fictional North Depot", ids: ids(cartons.slice(0, 2)) });

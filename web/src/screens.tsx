@@ -34,6 +34,7 @@ import {
 import { labelPdf, packingPdf, download } from "./labels";
 import { GroupedRecords, ShipmentChoices } from "./work-ui";
 import { shipmentName } from "./work";
+import { DispatchScanScreen, hasPendingScan } from "./scanner";
 export function Heading({
   eyebrow,
   title,
@@ -618,11 +619,31 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
   );
 }
 export function CartonScreen(ctx: Context) {
+  const [task, setTask] = useState(() => hasPendingScan() || new URLSearchParams(window.location.search).get("labels") === "scan" || window.location.hash === "#loading" ? "scan" : "print");
+  const [taskError, setTaskError] = useState("");
+  function chooseTask(next: string) {
+    if (next === task) return;
+    if (hasPendingScan()) { setTaskError("Check the last scan result before switching label tasks."); return; }
+    const url = new URL(window.location.href);
+    if (next === "scan") url.searchParams.set("labels", "scan");
+    else url.searchParams.delete("labels");
+    window.history.replaceState(null, "", url.pathname + url.search + "#cartons");
+    setTask(next);
+    setTaskError("");
+  }
+  return <>
+    <nav className="label-tasks" aria-label="Label tasks">
+      <button aria-pressed={task === "print"} onClick={() => chooseTask("print")}><Printer size={16} />Print & attach labels</button>
+      <button aria-pressed={task === "scan"} onClick={() => chooseTask("scan")}><ScanLine size={16} />Scan for dispatch</button>
+    </nav>
+    {taskError && <div className="notice error" role="alert">{taskError}</div>}
+    {task === "scan" ? <DispatchScanScreen {...ctx} /> : <PrintLabelsScreen {...ctx} />}
+  </>;
+}
+function PrintLabelsScreen(ctx: Context) {
   const { s } = ctx;
   const [selected, setSelected] = useState<string[]>([]),
     [search, setSearch] = useState(""),
-    [qr, setQr] = useState(""),
-    [physical, setPhysical] = useState(false),
     [error, setError] = useState(""),
     [history, setHistory] = useState<Row | null>(null);
   const rows = s.cartons.filter((c) =>
@@ -655,8 +676,8 @@ export function CartonScreen(ctx: Context) {
     <>
       <Heading
         eyebrow="ONE PHYSICAL CARTON. ONE UNIQUE ID."
-        title="Cartons & labels"
-        detail="Print in one batch, attach to the right boxes and scan to verify."
+        title="Labels"
+        detail="Print and attach labels. A supervisor confirms the labels and contents without scanning."
         action={
           <div className="button-row">
             <button
@@ -698,21 +719,23 @@ export function CartonScreen(ctx: Context) {
           <button
             className="secondary small"
             disabled={
-              !chosen.length || !may(ctx, "PackingClerk", "PackingSupervisor")
+              !chosen.length || !may(ctx, "PackingSupervisor")
             }
             onClick={() => {
               if (
                 confirm(
-                  "Confirm labels are physically attached to the matching selected boxes.",
+                  "I checked the actual contents of every selected carton and confirmed its matching label is physically attached. No scan is needed for this step.",
                 )
               )
                 void action(ctx, "attachLabels", {
                   ids: selected,
                   physicalConfirmed: true,
+                  contentsConfirmed: true,
+                  revisions: chosen.map((c) => ({ id: c.id, revision: c.revision })),
                 });
             }}
           >
-            Confirm attached
+            Confirm labels & contents
           </button>
         </div>
         {rows.length ? (
@@ -777,9 +800,9 @@ export function CartonScreen(ctx: Context) {
                         }
                       >
                         {c.verified
-                          ? "Verified"
+                          ? "Checked"
                           : c.attached
-                            ? "Attached · verify next"
+                            ? "Needs supervisor check"
                             : "Not attached"}
                       </Badge>
                     </td>
@@ -839,56 +862,6 @@ export function CartonScreen(ctx: Context) {
             detail="Approve a packing list to create carton IDs."
           />
         )}
-      </section>
-      <section className="panel verification-panel">
-        <div>
-          <h2>Check a carton</h2>
-          <p>
-            A supervisor must check the actual carton and its contents before confirming.
-          </p>
-        </div>
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (ctx.work.kind !== "all") {
-              try {
-                const scanned = parseQr(qr, s.company.id);
-                if (!s.cartons.some((c) => c.id === scanned.id)) throw Error("This carton is outside the selected work. Choose its packing list or shipment first.");
-              } catch (e) { setError((e as Error).message); return; }
-            }
-            if (
-              await action(ctx, "verifyCarton", {
-                qr,
-                physicalConfirmed: physical,
-              })
-            )
-              setQr("");
-          }}
-        >
-          <input
-            aria-label="Verification QR"
-            placeholder="Scan current carton QR and press Enter"
-            value={qr}
-            onChange={(e) => setQr(e.target.value)}
-            maxLength={160}
-            required
-          />
-          <label className="check-field">
-            <input
-              type="checkbox"
-              checked={physical}
-              onChange={(e) => setPhysical(e.target.checked)}
-            />
-            I checked this carton, its label, and its contents.
-          </label>
-          <button
-            className="primary"
-            disabled={!physical || !may(ctx, "PackingSupervisor")}
-          >
-            <ShieldCheck size={16} />
-            Confirm carton check
-          </button>
-        </form>
       </section>
       {s.labels.length > 0 && (
         <details className="panel supporting-panel" open={s.labels.some((j) => j.state !== "OperatorConfirmed")}>
@@ -1106,7 +1079,7 @@ export function TripsScreen(ctx: Context) {
                         onClick={() => { if (ctx.selectWork({ kind: "shipment", id: sh.id })) ctx.navigate(sh.loadApproved ? "billing" : "loading"); }}
                       >
                         {!sh.loadApproved && <ScanLine size={15} />}
-                        {sh.loadApproved ? "Review billing" : "Load cartons"}
+                        {sh.loadApproved ? "Review billing" : "Scan in Labels"}
                       </button>
                       {!sh.loadApproved && <button
                         className="secondary small"

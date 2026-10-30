@@ -15,10 +15,10 @@ Build date: 30 October 2026. This record distinguishes executed software checks 
 | PostgreSQL backup/restore | PASS | Official pg_dump/pg_restore 18.4; all 23 table counts and posting job hashes matched a new disposable UTF-8 restore target. Live source was not overwritten |
 | Windows self-contained packaging | PASS | win-x64 Release publication succeeded. Actual separate-PC installation remains pending |
 | Actual application A4 PDF function | PASS generation, render and decode | A4 dimensions, no-clipping visual inspection, mixed text and independent QR round trip all passed; actual paper/scanner still pending |
-| Vercel app + .NET API | DEPLOYED | Root returns 200. /api/health returns 503 with database unavailable, as expected while credentials remain blocked. Both are actual hosted endpoints |
+| Vercel app + .NET API | ACTIVE | Root and /api/health return 200; hosted PostgreSQL reports Connected. Administrator/MD logins and cloud draft persistence passed |
 | GitHub source push | PASS | Native connected GitHub write was denied; local Git credentials successfully pushed main to the exact user-provided repository |
-| Cloud DB provisioning | Created, unconnected | Free temporary database expires 2 November 2026 at 13:10 UTC unless claimed. No claim of permanent production storage |
-| Vercel runtime environment setup | BLOCKED | Automatic approval review rejected transmitting the new DB URI and bootstrap passwords to Vercel without specific approval |
+| Cloud DB provisioning | Connected, temporary trial | Free temporary database expires 2 November 2026 at 13:10 UTC unless claimed. No claim of permanent production storage |
+| Vercel runtime environment setup | PASS | User specifically approved on 30 October 2026. Credentials are sensitive production environment values, not frontend variables or source files |
 | Tally invoice creation/readback | NOT IMPLEMENTED / NOT VERIFIED | No Create adapter is enabled; jobs remain Blocked |
 | Scanner, A4 physical print and actual stock effect | PENDING ACTUAL SETUP | No D-5015, Tally machine or physical printer was available |
 
@@ -30,7 +30,7 @@ The actual application PDF function generated a one-page 210 × 297 mm test PDF.
 
 The self-contained win-x64 connector was published under artifacts/connector. Its executable can run `--self-test` without a .NET SDK on the target machine. The source and packaged fixture tests are distinct from an actual Tally connection.
 
-Deployment: https://kriyantha-dispatch.vercel.app/ (production hosting target, trial application). Source: https://github.com/pranavraok/DISPATCH-MANAGEMENT-SYSTEM . Private database credentials have not been transferred to Vercel. The visible sample is read-only and fictional. It cannot save scans or generate real invoices.
+Deployment: https://kriyantha-dispatch.vercel.app/ (production hosting target, trial application). Source: https://github.com/pranavraok/DISPATCH-MANAGEMENT-SYSTEM . Cloud database credentials are configured privately in Vercel. Authenticated sessions persist operational records online. The optional visible sample remains read-only and fictional. No Tally invoice posting is enabled.
 
 Additional departure/return tests deliberately set isolated SQL job fixtures to Confirmed with references beginning SIMULATED-NO-INVOICE. They verify application gates without generating a real invoice or statutory reference. No accountant, legal document, Tally stock movement or actual printer success is implied.
 
@@ -45,7 +45,7 @@ Additional departure/return tests deliberately set isolated SQL job fixtures to 
 
 ## Physical acceptance checklist
 
-1. Claim/configure permanent cloud PostgreSQL and approve private runtime credentials for the hosting project.
+1. Claim the connected trial PostgreSQL database before expiry, or move to a permanent database. Runtime credential activation is complete.
 2. Run migrations, create named operator accounts and confirm MD phone access over HTTPS.
 3. Print 10 unique trial labels at actual size, attach and physically verify contents; scan with the actual D-5015 in live HID + Enter mode.
 4. Pair the connector on the separate Tally PC to an isolated company. Verify company identity/capabilities and mapping snapshots.
@@ -53,3 +53,7 @@ Additional departure/return tests deliberately set isolated SQL job fixtures to 
 6. Exercise saved-voucher/lost-response, connector crash, lease expiry, duplicate deliveries and restored-backup reconciliation before permitting real Create.
 7. Verify one actual saved invoice and exactly one booked stock movement, genuine driver output, document gates, departure and return-credit treatment.
 8. Execute agreed load and recovery workloads before declaring production readiness.
+
+## Cloud activation check, 30 October 2026
+
+Hosted health, administrator login, MD login, Secure/HttpOnly session cookies, fictional draft persistence across fresh sessions, same-request idempotency and MD write denial (403) passed against the actual HTTPS application. The check created one unapproved fictional draft and zero cartons. No Tally request, real invoice, physical approval or stock movement was performed. Startup migrations were disabled after successful initialization.

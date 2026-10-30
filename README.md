@@ -49,7 +49,7 @@ Integration suites create clearly fictional test records and require a running s
 
 Dockerfile serves the SPA and .NET API from one origin on port 8080. Dockerfile.vercel uses the Vercel container runtime on port 80. Persist all data in a private TLS PostgreSQL database; the container holds no operational filesystem state. Keep bootstrap credentials and DATABASE_URL exclusively in private runtime environment variables. Never place them in VITE_* variables or tracked files.
 
-The first Vercel deployment can display a read-only fictional sample before secrets are configured. That is not a connected production warehouse. Hosting status and any remaining configuration approval are stated in the handover; a source deployment alone is not proof of database connectivity.
+The Vercel app and PostgreSQL connection are active for the trial. Administrator/MD logins and draft persistence across fresh sessions were verified over HTTPS. The optional sample remains read-only and fictional. Tally posting remains blocked, and the temporary database must be claimed before expiry; this is not production-readiness acceptance.
 
 Vercel Git integration needs the account's GitHub Login Connection; direct API deployment is supported independently. No automatic source-to-production pipeline is claimed until that connection is configured.
 

@@ -12,7 +12,8 @@ The complete specification is in MASTER_SPECIFICATION.txt. No Tally, scanner or 
 - [x] 7a. Packing lists, confirmed-invoice/document departure gates, returns/quarantine and audit reports.
 - [ ] 7b. Genuine invoice output, accountant-approved credit/restock and return redispatch.
 - [x] 8a. Runnable container setup, Windows runbooks, automated tests, Vercel app/API deployment and GitHub source push.
-- [ ] 8b. Vercel database credentials: automatic approval review requires explicit approval to transmit the new DB connection string and bootstrap passwords. Actual hardware/Tally and sustained-scale acceptance are also pending.
+- [x] 8b. Approved private Vercel database credentials, online administrator/MD sign-in, secure sessions and cloud draft persistence verified.
+- [ ] 8c. Permanent database claim, actual hardware/Tally and sustained-scale acceptance.
 
 ## Confirmed boundaries
 

@@ -13,6 +13,8 @@ import * as api from "./api";
 import { plainLabel } from "./brand";
 import { ShipmentChoices } from "./work-ui";
 import { shortReference } from "./codes";
+import { readWorkstation } from "./workstation";
+import type { Workflow } from "./workflow";
 type Result = { outcome: string; message: string; id?: string };
 type Pending = { envelope: api.Envelope; shipmentId: string; at: string };
 const pendingKey = "electro-group-uncertain-scan-v1";
@@ -23,10 +25,16 @@ export function hasPendingScan() {
     return !!saved?.envelope?.requestId;
   } catch { return false; }
 }
+export function pendingScanWorkflow(): Workflow {
+  try {
+    const saved = JSON.parse(localStorage.getItem(pendingKey) ?? localStorage.getItem(legacyPendingKey) ?? "null");
+    return saved?.envelope?.data?.workflow === "OrderFirst" ? "OrderFirst" : "StockFirst";
+  } catch { return "StockFirst"; }
+}
 export function DispatchScanScreen(ctx: Context) {
   const { all: s, sample, run, refresh } = ctx;
   const [shipmentId, setShipmentId] = useState(ctx.work.kind === "shipment" ? ctx.work.id : ""),
-    [station, setStation] = useState("LOADING-PC-01"),
+    [station, setStation] = useState(() => readWorkstation(s.company.id).station),
     [sessionId, setSessionId] = useState(""),
     [started, setStarted] = useState(false),
     [focused, setFocused] = useState(false),
@@ -158,6 +166,7 @@ export function DispatchScanScreen(ctx: Context) {
     }
     const p: Pending = {
       envelope: api.envelope("scan", {
+        workflow: ctx.workflow ?? "StockFirst",
         sessionId,
         station,
         qr: qr.replace(/[\r\n]+$/, ""),

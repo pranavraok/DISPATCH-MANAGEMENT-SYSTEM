@@ -4,22 +4,25 @@ namespace Dispatch;
 
 public static class WorkQueries
 {
-    public static async Task<IResult> Read(string kind, string id, int? page, HttpContext ctx, DispatchDb db)
+    public static async Task<IResult> Read(string kind, string id, int? page, string? workflow, HttpContext ctx, DispatchDb db)
     {
         var (user, _) = await Auth.User(ctx, db);
         var company = user.CompanyId;
+        var flow = Workflows.Parse(workflow);
+        var manifests = db.Manifests.Where(m => m.CompanyId == company && m.Workflow == flow);
+        var shipments = db.Shipments.Where(s => s.CompanyId == company && s.Workflow == flow);
+        // Keep this base query independent: packing reads derive shipments from allocations below.
         var allocations = db.Allocations.Where(a => a.CompanyId == company && a.Active);
-        var shipments = db.Shipments.Where(s => s.CompanyId == company);
-        IQueryable<Carton> cartons = db.Cartons.Where(c => c.CompanyId == company);
+        IQueryable<Carton> cartons = db.Cartons.Where(c => c.CompanyId == company && manifests.Any(m => m.Id == c.ManifestId));
         switch (kind)
         {
             case "packing":
-                if (!await db.Manifests.AnyAsync(m => m.CompanyId == company && m.Id == id)) throw new RuleException("Packing list not found.", 404);
+                if (!await manifests.AnyAsync(m => m.Id == id)) throw new RuleException("Packing list not found in this workflow.", 404);
                 cartons = cartons.Where(c => c.ManifestId == id);
                 shipments = shipments.Where(s => allocations.Any(a => a.ShipmentId == s.Id && cartons.Any(c => c.Id == a.CartonId)));
                 break;
             case "trip":
-                if (!await db.Trips.AnyAsync(t => t.CompanyId == company && t.Id == id)) throw new RuleException("Trip not found.", 404);
+                if (!await db.Trips.AnyAsync(t => t.CompanyId == company && t.Workflow == flow && t.Id == id)) throw new RuleException("Trip not found in this workflow.", 404);
                 shipments = shipments.Where(s => s.TripId == id);
                 cartons = cartons.Where(c => allocations.Any(a => a.CartonId == c.Id && shipments.Any(s => s.Id == a.ShipmentId)));
                 break;
@@ -59,6 +62,8 @@ public static class WorkQueries
             """).ToListAsync();
         return Results.Ok(new
         {
+            workflow = flow,
+            orders = await db.Orders.Where(o => o.CompanyId == company && o.Workflow == flow && (shipments.Any(s => s.OrderId == o.Id) || manifests.Any(m => manifestIds.Contains(m.Id) && m.OrderId == o.Id))).ToListAsync(),
             cartons = cartonRows,
             cartonTotal = total,
             hasMore = skip + cartonRows.Count < total,

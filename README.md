@@ -22,6 +22,9 @@ For native Windows development, run the API on 5080 with a PostgreSQL connection
 
 ## Implemented stages
 
+- Two workflow dashboards after the same sign-in: **Pack before order** (general stock, labels first, customer order later) and **Order first** (received order required before packing). Orders, packing, trips, loading and billing retain their workflow in PostgreSQL. Existing records migrate to Pack before order without changing carton identities.
+- A single shared setup for products, customers, Tally mapping/connector and label/document printing. The scanner workstation name is saved once per company on each browser/computer and reused in both workflows. See [Testing the two workflows](docs/WORKFLOWS.md).
+
 - Shared work selection and grouped packing lists, vehicle trips and customer shipments across all operational sections. Same-customer shipments stay separate; the selection survives sidebar navigation and refresh. Settings remain company-wide.
 - Work groups use readable cards, three across on desktop and one on phones. Compact display references retain the complete identity. New carton QRs use a shorter reversible code with the label revision; existing printed K1 labels remain accepted.
 

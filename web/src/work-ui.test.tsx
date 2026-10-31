@@ -8,12 +8,12 @@ import { projectWork, type WorkScope } from "./work";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 let requests: Mock<(url: string) => Promise<Response>>;
 beforeEach(() => {
-  window.history.replaceState(null, "", "/#cartons");
+  window.history.replaceState(null, "", "/?workflow=StockFirst#cartons");
   localStorage.clear();
   requests = vi.fn(async (url: string) => {
     const s = workFixture();
     if (url === "/api/auth/me") return json({ user: { name: "Group Tester", roles: ["Admin"] }, csrf: "fixture-csrf" });
-    if (url === "/api/state") return json(s);
+    if (url.startsWith("/api/state")) return json(s);
     if (url.startsWith("/api/work/")) {
       const [kind, id] = url.split("?")[0].split("/").slice(3);
       if (id === "MISSING") return json({ error: "Not found" }, 404);
@@ -104,7 +104,7 @@ describe("shipment grouping across sidebar pages", () => {
   });
 
   it("lets the operator clear a stale bookmarked work ID", async () => {
-    window.history.replaceState(null, "", "/?work=shipment%3AMISSING#cartons");
+    window.history.replaceState(null, "", "/?workflow=StockFirst&work=shipment%3AMISSING#cartons");
     render(<App />);
     const clear = await screen.findByRole("button", { name: "Show all work" });
     expect(screen.queryByLabelText("Password")).toBeNull();
@@ -134,7 +134,7 @@ describe("shipment grouping across sidebar pages", () => {
   it("loads the chosen packing list even when its cartons are outside the initial list", async () => {
     const original = requests.getMockImplementation()!;
     requests.mockImplementation(async (url: string) => {
-      if (url === "/api/state") {
+      if (url.startsWith("/api/state")) {
         const s = workFixture();
         s.cartons = s.cartons.filter((c) => c.id !== "CT-STOCK");
         return json(s);

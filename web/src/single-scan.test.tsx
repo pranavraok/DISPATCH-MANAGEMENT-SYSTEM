@@ -9,7 +9,7 @@ const json=(value:unknown)=>new Response(JSON.stringify(value),{status:200,heade
 let state:ReturnType<typeof workFixture>;
 let commands:{type:string;data:Record<string,any>}[];
 beforeEach(()=>{
-  window.history.replaceState(null,"","/#cartons");localStorage.clear();
+  window.history.replaceState(null,"","/?workflow=StockFirst#cartons");localStorage.clear();
   state=workFixture();commands=[];
   vi.stubGlobal("AudioContext",class {
     state="running";currentTime=0;
@@ -20,7 +20,7 @@ beforeEach(()=>{
   });
   vi.stubGlobal("fetch",vi.fn(async(url:string,options?:RequestInit)=>{
     if(url==="/api/auth/me")return json({user:{name:"Scan Tester",roles:["Admin"]},csrf:"fixture"});
-    if(url==="/api/state")return json(state);
+    if(url.startsWith("/api/state"))return json(state);
     if(url.startsWith("/api/work/")){const[kind,id]=url.split("?")[0].split("/").slice(3);return json({...projectWork(state,{kind,id}as WorkScope),hasMore:false});}
     if(url==="/api/commands"){
       const request=JSON.parse(String(options?.body));commands.push(request);
@@ -81,7 +81,7 @@ describe("one scan under Labels",()=>{
   });
 
   it("routes older Loading bookmarks to the sole scanner in Labels",async()=>{
-    window.history.replaceState(null,"","/?work=shipment:SHIP-B#loading");
+    window.history.replaceState(null,"","/?workflow=StockFirst&work=shipment:SHIP-B#loading");
     render(<App/>);await screen.findByRole("heading",{name:"Labels"});
     expect(screen.getByLabelText("SCAN CARTON QR")).toBeTruthy();
     expect(screen.queryByLabelText("Verification QR")).toBeNull();

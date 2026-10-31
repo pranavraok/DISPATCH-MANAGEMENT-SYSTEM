@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Dispatch;
 
 public record Command(string RequestId, string Type, JsonElement Data);
-public record GroupDraft(string Name, string WarehouseId, string? CustomerId, string Notes, PackedGroup[] Groups, string? Id = null, int Version = 0);
+public record GroupDraft(string Name, string WarehouseId, string? CustomerId, string Notes, PackedGroup[] Groups, string? Id = null, int Version = 0, string? OrderId = null);
 public record RateLine(string Sku, decimal Rate, decimal DiscountPercent);
 public record LabelCheck(string Id, int Revision);
 public record BillDraft(string ShipmentId, RateLine[] Rates, decimal Freight, decimal OtherCharges, string Reason, string Terms, int Version);
@@ -15,7 +15,7 @@ public static class Permissions
     public static readonly string[] Roles = ["Admin", "PackingClerk", "PackingSupervisor", "Loader", "DispatchSupervisor", "Billing", "MD"];
     public static void Require(User u, params string[] roles) { if (!u.Roles.Contains("Admin") && !u.Roles.Intersect(roles).Any()) throw new RuleException("Your role cannot perform this action.", 403); }
 }
-public sealed class Operations(DispatchDb db)
+public sealed partial class Operations(DispatchDb db)
 {
     User actor = null!;
     string company = "";
@@ -25,12 +25,17 @@ public sealed class Operations(DispatchDb db)
     static bool Flag(JsonElement d, string key) => d.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True;
     static string[] Ids(JsonElement d) => Json.Read<string[]>(d.GetProperty("ids"));
     static void Check(bool condition, string error, int status = 400) { if (!condition) throw new RuleException(error, status); }
-    public async Task<T> Get<T>(string id) where T : Scoped => await db.Set<T>().SingleOrDefaultAsync(x => x.Id == id && x.CompanyId == company) ?? throw new RuleException("Record unavailable in your company.", 404);
+    public async Task<T> Get<T>(string id) where T : Scoped
+    {
+        var record = await db.Set<T>().SingleOrDefaultAsync(x => x.Id == id && x.CompanyId == company) ?? throw new RuleException("Record unavailable in your company.", 404);
+        await CheckWorkflow(record); return record;
+    }
     void RequireReason(JsonElement d) => Check(Str(d, "reason").Length >= 3, "A meaningful reason is required.");
-    void Audit(string action, string entity, object data) { var e = new AuditEvent { CompanyId = company, ActorId = actor.Id, Action = action, EntityId = entity, Data = Json.Write(data) }; db.Audit.Add(e); db.Outbox.Add(new OutboxEvent { CompanyId = company, AuditId = e.Id }); }
+    void Audit(string action, string entity, object data) { var shared = new[] { "saveProduct", "saveCustomer", "saveMapping", "pairConnector", "revokeConnector", "createUser", "productMapping", "customerMapping" }.Contains(action); var e = new AuditEvent { CompanyId = company, Workflow = shared ? null : workflow, ActorId = actor.Id, Action = action, EntityId = entity, Data = Json.Write(data) }; db.Audit.Add(e); db.Outbox.Add(new OutboxEvent { CompanyId = company, AuditId = e.Id }); }
     public async Task<object> Execute(User user, Command cmd)
     {
         actor = user; company = user.CompanyId;
+        workflow = Workflows.Parse(Str(cmd.Data, "workflow"));
         Check(Guid.TryParse(cmd.RequestId, out _), "Request ID must be a UUID.");
         // One company-scoped transaction serializes conflicting operations initially. This is deliberately conservative;
         // replace with resource locks only after the repeatable concurrency suite and measured workloads justify it.
@@ -49,6 +54,8 @@ public sealed class Operations(DispatchDb db)
     {
         switch (type)
         {
+            case "createOrder": return await CreateOrder(d);
+            case "deleteOrder": return await DeleteOrder(d);
             case "deleteManifest":
                 {
                     Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); Check(Flag(d, "confirmed"), "Confirm deleting this packing list.");
@@ -95,9 +102,20 @@ public sealed class Operations(DispatchDb db)
                     Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); var input = Json.Read<GroupDraft>(d);
                     Check(input.Name.Length is >= 3 and <= 120, "Provide a name between 3 and 120 characters."); await Get<Warehouse>(input.WarehouseId);
                     if (!string.IsNullOrEmpty(input.CustomerId)) await Get<Customer>(input.CustomerId);
-                    await ValidateGroups(input.Groups); Manifest m;
+                    await ValidateGroups(input.Groups);
+                    DispatchOrder? order = null;
+                    if (workflow == Workflows.OrderFirst)
+                    {
+                        Check(!string.IsNullOrEmpty(input.OrderId), "Record and choose the customer order before packing.");
+                        order = await Get<DispatchOrder>(input.OrderId!);
+                        Check(order.CustomerId == input.CustomerId && order.WarehouseId == input.WarehouseId, "Packing customer and warehouse must match the order.");
+                        await ValidateOrderPacking(order, input.Groups, input.Id);
+                    }
+                    else Check(string.IsNullOrEmpty(input.OrderId) && (!d.TryGetProperty("workflow", out _) || input.CustomerId == null), "Pack-before-order cartons must start as general stock. Assign the customer when the order arrives.");
+                    Manifest m;
                     if (input.Id != null) { m = await Get<Manifest>(input.Id); Check(m.State == "Draft", "Approved manifests are immutable."); Check(m.Version == input.Version, "Another operator changed this draft. Reload before saving.", 409); m.Version++; }
-                    else { m = new Manifest { CompanyId = company, Id = NewId("PK-") }; db.Manifests.Add(m); }
+                    else { m = new Manifest { CompanyId = company, Workflow = workflow, Id = NewId("PK-") }; db.Manifests.Add(m); }
+                    m.OrderId = order?.Id;
                     m.Name = input.Name; m.WarehouseId = input.WarehouseId; m.CustomerId = input.CustomerId; m.Notes = input.Notes; m.Groups = Json.Write(input.Groups);
                     return new { id = m.Id, version = m.Version, message = "Draft saved. A supervisor must check the packed cartons before approval." };
                 }
@@ -107,6 +125,7 @@ public sealed class Operations(DispatchDb db)
                     var m = await Get<Manifest>(Str(d, "id")); if (m.State == "Approved") return new { id = m.Id, message = "This packing list is already approved. No extra cartons were created." };
                     Check(m.State == "Draft", "Manifest cannot be approved in this state.");
                     var groups = Json.Read<PackedGroup[]>(m.Groups); await ValidateGroups(groups);
+                    if (m.OrderId != null) await ValidateOrderPacking(await Get<DispatchOrder>(m.OrderId), groups, m.Id);
                     foreach (var group in groups) for (var i = 0; i < group.Count; i++) db.Cartons.Add(new Carton { Id = NewId("CT-"), CompanyId = company, ManifestId = m.Id, WarehouseId = m.WarehouseId, CustomerId = m.CustomerId, Marking = group.Marking, Lines = Json.Write(await Normalize(group.Lines)) });
                     m.State = "Approved"; m.ApprovedBy = actor.Id; m.ApprovedAt = DateTimeOffset.UtcNow; m.Version++;
                     return new { id = m.Id, count = groups.Sum(g => g.Count), message = "Cartons created. Print and attach labels, then ask a supervisor to confirm labels and contents without scanning." };
@@ -115,7 +134,7 @@ public sealed class Operations(DispatchDb db)
                 {
                     Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); RequireReason(d); var cartons = await Selected(d);
                     Check(cartons.All(c => c.State is "Available" or "Reserved"), "Retired, loaded and dispatched labels cannot be reissued through the packing screen.");
-                    var label = new LabelJob { CompanyId = company, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = CartonCodes.Encode(c.Id, c.Revision, company) })) }; db.Labels.Add(label);
+                    var label = new LabelJob { CompanyId = company, Workflow = workflow, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = CartonCodes.Encode(c.Id, c.Revision, company) })) }; db.Labels.Add(label);
                     return new { id = label.Id, cartons, message = "Labels are ready. Print them and attach them to the matching cartons." };
                 }
             case "labelStatus":
@@ -154,7 +173,7 @@ public sealed class Operations(DispatchDb db)
                 }
             case "createTrip":
                 {
-                    Permissions.Require(actor, "DispatchSupervisor"); Check(Str(d, "vehicle").Length >= 4 && Str(d, "driver").Length >= 2, "Vehicle and driver are required."); var trip = new Trip { Id = NewId("TR-"), CompanyId = company, Vehicle = Str(d, "vehicle"), Driver = Str(d, "driver"), Transporter = Str(d, "transporter") }; db.Trips.Add(trip); return new { id = trip.Id, message = "Vehicle trip created." };
+                    Permissions.Require(actor, "DispatchSupervisor"); Check(Str(d, "vehicle").Length >= 4 && Str(d, "driver").Length >= 2, "Vehicle and driver are required."); var trip = new Trip { Id = NewId("TR-"), CompanyId = company, Workflow = workflow, Vehicle = Str(d, "vehicle"), Driver = Str(d, "driver"), Transporter = Str(d, "transporter") }; db.Trips.Add(trip); return new { id = trip.Id, message = "Vehicle trip created." };
                 }
             case "updateTrip":
                 {
@@ -164,7 +183,8 @@ public sealed class Operations(DispatchDb db)
                 {
                     Permissions.Require(actor, "DispatchSupervisor"); var trip = await Get<Trip>(Str(d, "tripId")); Check(trip.State == "Open", "Trip has already departed."); var cust = await Get<Customer>(Str(d, "customerId")); Check(Str(d, "destination").Length >= 3, "Delivery destination required."); var cartons = await Selected(d);
                     Check(cartons.All(c => c.Verified && c.Attached && !c.Held && c.State == "Available"), "Every selected carton must have its labels and contents confirmed, be unheld and available."); Check(cartons.Select(c => c.WarehouseId).Distinct().Count() == 1, "Select one warehouse per shipment."); Check(cartons.All(c => c.CustomerId == null || c.CustomerId == cust.Id), "Cartons assigned to another customer cannot be allocated.");
-                    var s = new Shipment { Id = NewId("SH-"), CompanyId = company, TripId = trip.Id, CustomerId = cust.Id, WarehouseId = cartons[0].WarehouseId, Destination = Str(d, "destination") }; db.Shipments.Add(s);
+                    var order = await ValidateOrderAllocation(d, cust, cartons);
+                    var s = new Shipment { Id = NewId("SH-"), CompanyId = company, Workflow = workflow, OrderId = order?.Id, TripId = trip.Id, CustomerId = cust.Id, WarehouseId = cartons[0].WarehouseId, Destination = Str(d, "destination") }; db.Shipments.Add(s);
                     foreach (var c in cartons) { c.State = "Reserved"; db.Allocations.Add(new Allocation { CompanyId = company, ShipmentId = s.Id, CartonId = c.Id }); }
                     return new { id = s.Id, message = $"{cartons.Count} cartons reserved for {cust.Name}. Remaining packed cartons stay available." };
                 }
@@ -256,7 +276,9 @@ public sealed class Operations(DispatchDb db)
     }
     async Task<List<Carton>> Selected(JsonElement d)
     {
-        var ids = Ids(d); Check(ids.Length is > 0 and <= 1000 && ids.Distinct().Count() == ids.Length, "Select 1–1,000 distinct cartons."); var rows = await db.Cartons.Where(x => x.CompanyId == company && ids.Contains(x.Id)).ToListAsync(); Check(rows.Count == ids.Length, "Carton missing or belongs to another company."); return rows;
+        var ids = Ids(d); Check(ids.Length is > 0 and <= 1000 && ids.Distinct().Count() == ids.Length, "Select 1-1,000 distinct cartons."); var rows = await db.Cartons.Where(x => x.CompanyId == company && ids.Contains(x.Id)).ToListAsync(); Check(rows.Count == ids.Length, "Carton missing or belongs to another company.");
+        Check(await db.Manifests.Where(m => m.CompanyId == company && m.Workflow == workflow && rows.Select(c => c.ManifestId).Contains(m.Id)).CountAsync() == rows.Select(c => c.ManifestId).Distinct().Count(), "Choose cartons from this workflow only.", 409);
+        return rows;
     }
     async Task<Carton> ResolveQr(string qr)
     {

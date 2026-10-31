@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Printer,
   ClipboardCheck,
+  ClipboardList,
   RotateCcw,
   Activity,
   AlertTriangle,
@@ -53,9 +54,14 @@ import { hasPendingScan } from "./scanner";
 import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
 import { WorkSelector, ShipmentOverview } from "./work-ui";
 import { brand, plainLabel } from "./brand";
+import { readWorkflow, workflows, sampleWorkflow, type Workflow } from "./workflow";
+import { WorkflowChooser, OrdersScreen } from "./workflow-ui";
+import { pendingScanWorkflow } from "./scanner";
 import "./style.css";
 import "./clean.css";
+import "./workflow-picker.css";
 export type Context = {
+  workflow?: Workflow;
   s: State;
   all: State;
   work: WorkScope;
@@ -133,13 +139,14 @@ export function Modal({
 }
 const nav = [
   ["overview", "Home", LayoutDashboard],
+  ["orders", "Orders", ClipboardList],
   ["packing", "Packing", Package],
   ["trips", "Trips", Truck],
   ["cartons", "Labels", ClipboardCheck],
   ["billing", "Billing", ReceiptText],
   ["returns", "Returns", RotateCcw],
   ["reports", "Reports", Activity],
-  ["setup", "Settings", Settings],
+  ["setup", "Shared settings", Settings],
 ] as const;
 function savedPage() {
   const page = window.location.hash.slice(1);
@@ -149,6 +156,7 @@ export function App() {
   const [user, setUser] = useState<Row | null>(null),
     [s, setState] = useState<State | null>(null),
     [sample, setSample] = useState(false),
+    [workflow, setWorkflow] = useState<Workflow | null>(readWorkflow),
     [page, setPage] = useState(savedPage),
     [work, setWork] = useState<WorkScope>(readWorkScope),
     [workRetry, setWorkRetry] = useState(0),
@@ -161,14 +169,15 @@ export function App() {
     [mobile, setMobile] = useState(false),
     [lastSync, setLastSync] = useState<Date | null>(null);
   const selectionKey = workKey(work);
-  const selectionRef = useRef(selectionKey);
-  selectionRef.current = selectionKey;
+  const contextKey = (workflow ?? "StockFirst") + ":" + selectionKey;
+  const selectionRef = useRef(contextKey);
+  selectionRef.current = contextKey;
   const view = useMemo(() => s ? projectWork(s, work) : null, [s, selectionKey]);
   const refresh = useCallback(async () => {
-    if (sample) return;
+    if (sample || !workflow) return;
     try {
-      const next = await client.state(undefined, work);
-      if (selectionRef.current !== selectionKey) return;
+      const next = await client.state(undefined, work, workflow);
+      if (selectionRef.current !== contextKey) return;
       setState(next);
       setLastSync(new Date());
     } catch (e) {
@@ -179,14 +188,14 @@ export function App() {
       }
       throw e;
     }
-  }, [sample, selectionKey]);
+  }, [sample, selectionKey, workflow, contextKey]);
   useEffect(() => {
     const controller = new AbortController();
     setSessionStatus("checking");
     async function restore() {
       try {
         const restoredUser = await client.me(controller.signal);
-        const next = await client.state(controller.signal, work);
+        const next = await client.state(controller.signal, work, workflow ?? undefined);
         if (controller.signal.aborted) return;
         setUser(restoredUser);
         setState(next);
@@ -207,10 +216,10 @@ export function App() {
     return () => controller.abort();
   }, [restoreAttempt]);
   useEffect(() => {
-    if (sample || sessionStatus !== "ready" || !user || s?.workLoadedKey === selectionKey) return;
+    if (sample || !workflow || sessionStatus !== "ready" || !user || (s?.workLoadedKey === selectionKey && s?.workflow === workflow)) return;
     const controller = new AbortController();
     setWorkError("");
-    client.state(controller.signal, work).then((next) => {
+    client.state(controller.signal, work, workflow).then((next) => {
       if (controller.signal.aborted) return;
       setState(next);
       setLastSync(new Date());
@@ -220,9 +229,9 @@ export function App() {
       else setWorkError("Could not load this work. Please try again.");
     });
     return () => controller.abort();
-  }, [selectionKey, workRetry, sample, sessionStatus, user, s?.workLoadedKey]);
+  }, [selectionKey, workflow, workRetry, sample, sessionStatus, user, s?.workLoadedKey, s?.workflow]);
   useEffect(() => {
-    const restorePage = () => { setPage(savedPage()); setWork(readWorkScope()); };
+    const restorePage = () => { setPage(savedPage()); setWork(readWorkScope()); setWorkflow(readWorkflow()); };
     window.addEventListener("hashchange", restorePage);
     window.addEventListener("popstate", restorePage);
     return () => { window.removeEventListener("hashchange", restorePage); window.removeEventListener("popstate", restorePage); };
@@ -240,6 +249,23 @@ export function App() {
     setWork(next);
     setWorkError("");
     return true;
+  }
+  function chooseWorkflow(next: Workflow) {
+    if (hasPendingScan() && next !== pendingScanWorkflow()) {
+      setError("Resolve the pending scan in its original workflow before switching."); return false;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("workflow", next); url.searchParams.delete("work"); url.searchParams.delete("labels"); url.searchParams.delete("order");
+    window.history.replaceState(null, "", url.pathname + url.search + "#overview");
+    setWorkflow(next); setWork({ kind: "all" }); setPage("overview"); setWorkError(""); setError("");
+    if (sample) setState(sampleWorkflow(sampleState(), next));
+    return true;
+  }
+  function changeWorkflow() {
+    if (hasPendingScan()) { setError("Resolve the pending scan before switching workflows."); return; }
+    const url = new URL(window.location.href); url.searchParams.delete("workflow"); url.searchParams.delete("work"); url.searchParams.delete("labels"); url.searchParams.delete("order");
+    window.history.replaceState(null, "", url.pathname + url.search + "#overview");
+    setWorkflow(null); setWork({ kind: "all" }); setPage("overview"); setMobile(false);
   }
   function navigate(next: string) {
     if (next === "loading" || next === "printLabels") {
@@ -274,12 +300,12 @@ export function App() {
       );
     setBusy(true);
     setError("");
-    const request = client.envelope(type, data);
+    const request = client.envelope(type, { ...data, workflow: workflow ?? "StockFirst" });
     try {
       const result = await client.send(request);
       const deletedKind = { deleteManifest: "packing", deleteTrip: "trip", deleteShipment: "shipment" }[type];
       const refreshAfterSave = deletedKind === work.kind && work.kind !== "all" && data.id === work.id
-        ? (async () => { selectWork({ kind: "all" }); const next = await client.state(); setState(next); setLastSync(new Date()); })()
+        ? (async () => { selectWork({ kind: "all" }); const next = await client.state(undefined, { kind: "all" }, workflow ?? undefined); setState(next); setLastSync(new Date()); })()
         : refresh();
       await refreshAfterSave.catch(() =>
         setError("Saved. Refresh the page to see the latest information."),
@@ -299,9 +325,12 @@ export function App() {
     const u = await client.login(email, password);
     setUser(u);
     setSample(false);
+    setWorkflow(null); setWork({ kind: "all" });
+    const url = new URL(window.location.href); url.searchParams.delete("workflow"); url.searchParams.delete("work"); url.searchParams.delete("order"); url.searchParams.delete("labels");
+    window.history.replaceState(null, "", url.pathname + url.search + "#overview"); setPage("overview");
     setSessionStatus("checking");
     try {
-      const next = await client.state(undefined, work);
+      const next = await client.state();
       setState(next);
       setLastSync(new Date());
       setSessionStatus("ready");
@@ -332,16 +361,19 @@ export function App() {
       email: "Read-only workspace",
     });
     setState(sampleState());
+    setWorkflow(null);
     setSessionStatus("ready");
   }
   if (sessionStatus === "signedOut") return <Login onLogin={onLogin} preview={preview} />;
   if (sessionStatus !== "ready" || !user || !s) {
     return <SessionNotice unavailable={sessionStatus === "unavailable"} retry={() => setRestoreAttempt((n) => n + 1)} />;
   }
-  const ctx: Context = { s: view!, all: s, work, selectWork, user, sample, run, refresh, navigate };
+  if (!workflow) return <WorkflowChooser choose={chooseWorkflow} user={user} error={error} signOut={() => void logout()} openSettings={() => { if (chooseWorkflow("StockFirst")) navigate("setup"); }} />;
+  const ctx: Context = { s: view!, all: s, work, selectWork, user, sample, run, refresh, navigate, workflow };
   const current = nav.find((x) => x[0] === page)!;
   const screens: Record<string, ReactNode> = {
     overview: <Overview {...ctx} />,
+    orders: <OrdersScreen key={workflow} {...ctx} />,
     packing: <PackingScreen key={selectionKey} {...ctx} />,
     cartons: <CartonScreen key={selectionKey} {...ctx} />,
     trips: <TripsScreen key={selectionKey} {...ctx} />,
@@ -362,10 +394,10 @@ export function App() {
             {brand.shortName}<small>GROUP OF INDUSTRIES</small>
           </div>
         </a>
-        <p className="sidebar-caption">Dispatch management</p>
+        <div className="sidebar-workflow"><span>WORKFLOW</span><strong>{workflows[workflow].title}</strong><button className="text-link" onClick={changeWorkflow}>Switch workflow <ArrowRight size={14} /></button></div>
         <nav aria-label="Main navigation">
           {[
-            ["Prepare", ["overview", "packing"]],
+            ["Prepare", ["overview", "orders", "packing"]],
             ["Dispatch", ["trips", "cartons", "billing"]],
             ["History", ["returns", "reports"]],
             ["Company", ["setup"]],
@@ -455,9 +487,9 @@ export function App() {
               </button>
             </div>
           )}
-          <WorkSelector ctx={ctx} companyWide={page === "setup"} />
+          {(sample || s.workflow === workflow) && <WorkSelector ctx={ctx} companyWide={page === "setup" || page === "orders"} />}
           {s.workMissing && <div className="notice amber">This work was not found. Choose another packing list, trip, or shipment, or select Show all work.</div>}
-          {page !== "setup" && !sample && s.workLoadedKey !== selectionKey ? <section className="panel panel-padding" role="status"><h2>{workError || "Opening selected work…"}</h2>{workError && <button className="secondary" onClick={() => setWorkRetry((n) => n + 1)}>Try again</button>}</section> : <>
+          {!sample && (s.workLoadedKey !== selectionKey || s.workflow !== workflow) ? <section className="panel panel-padding" role="status"><h2>{workError || "Opening your workflow…"}</h2>{workError && <button className="secondary" onClick={() => setWorkRetry((n) => n + 1)}>Try again</button>}</section> : <>
             {s.workComplete === false && work.kind !== "all" && <div className="notice amber">Showing up to 5,000 carton details out of {number(s.workCartonTotal ?? 0)}. Choose a smaller shipment for a complete view.</div>}
             {screens[page]}
           </>}
@@ -538,7 +570,7 @@ function Login({
             simple.
           </h1>
           <p>
-            Record packed cartons, check labels, load the vehicle, and prepare billing.
+            Pack before an order arrives, or prepare cartons for an existing order. One shared setup for both.
           </p>
           <div className="login-flow">
             <span>
@@ -563,7 +595,7 @@ function Login({
         <div className="eyebrow">DISPATCH</div>
         <h2>Sign in</h2>
         {connectionNote && <div className="notice amber">{connectionNote}</div>}
-        <p>Open your dispatch workspace.</p>
+        <p>Sign in once, then choose your dispatch workflow.</p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -618,22 +650,21 @@ function Login({
 }
 function Overview(ctx: Context) {
   const { s, navigate } = ctx;
+  const workflow = ctx.workflow ?? "StockFirst", info = workflows[workflow], orderFirst = workflow === "OrderFirst";
   const count = (state: string) => s.counts.find((x) => x.state === state)?.count ?? 0;
   return (
     <>
       <div className="page-heading">
-        <div><h1>Home</h1><p>Choose a task to get started.</p></div>
-        <button className="primary" onClick={() => navigate("packing")}><Plus size={17} />Add packed cartons</button>
+        <div><span className="eyebrow">{orderFirst ? "ORDER RECEIVED" : "MANUFACTURED STOCK"}</span><h1>{info.title}</h1><p>{info.description}</p></div>
+        <button className="primary" onClick={() => navigate(orderFirst ? "orders" : "packing")}><Plus size={17} />{orderFirst ? "Open customer orders" : "Add packed cartons"}</button>
       </div>
       <div className="home-totals" aria-label="Work summary">
         <div><strong>{number(s.manifests.filter((m) => m.state === "Draft").length)}</strong><span>Lists to approve</span></div>
         <div><strong>{number(count("Available"))}</strong><span>Available cartons</span></div>
-        <div><strong>{number(count("Loaded"))}</strong><span>Loaded cartons</span></div>
+        <div><strong>{number(count("Loaded"))}</strong><span>Loaded cartons</span></div><div><strong>{number((s.orders ?? []).length)}</strong><span>Customer orders</span></div>
       </div>
       <nav className="task-flow" aria-label="Dispatch steps">
-          {[
-            ["Packing", "packing"], ["Print labels", "printLabels"], ["Trips", "trips"], ["Scan in Labels", "loading"], ["Billing", "billing"],
-          ].map(([title, target], i) => <button key={target} onClick={() => navigate(target)}><span>{i + 1}</span>{title}<ChevronRight size={14} /></button>)}
+          {(orderFirst ? [["Receive order", "orders"], ["Pack & label", "packing"], ["Trips", "trips"], ["Scan in Labels", "loading"], ["Billing", "billing"]] : [["Pack stock", "packing"], ["Print labels", "printLabels"], ["Receive order", "orders"], ["Choose cartons", "trips"], ["Scan & bill", "loading"]]).map(([title, target], i) => <button key={target} onClick={() => navigate(target)}><span>{i + 1}</span>{title}<ChevronRight size={14} /></button>)}
       </nav>
       <ShipmentOverview ctx={ctx} />
       <details className="panel supporting-panel">

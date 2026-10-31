@@ -1,5 +1,6 @@
 import type { Row, State } from "./domain";
 import { workKey, type WorkScope } from "./work";
+import type { Workflow } from "./workflow";
 let csrf = "";
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -44,23 +45,26 @@ export async function me(signal?: AbortSignal) {
   csrf = result.csrf;
   return result.user;
 }
-export async function state(signal?: AbortSignal, scope: WorkScope = { kind: "all" }): Promise<State> {
-  const state = await api<State>("/state", { signal });
+export async function state(signal?: AbortSignal, scope: WorkScope = { kind: "all" }, workflow?: Workflow): Promise<State> {
+  const query = workflow ? "?workflow=" + workflow : "";
+  const state = await api<State>("/state" + query, { signal });
+  state.orders ??= [];
+  if (workflow) state.workflow = workflow;
   state.workLoadedKey = workKey(scope);
   state.workComplete = true;
   if (scope.kind === "all") return state;
-  const keys = ["cartons", "manifests", "trips", "shipments", "allocations", "billings", "jobs", "returns", "labels", "audit"] as const;
+  const keys = ["cartons", "manifests", "trips", "shipments", "allocations", "billings", "jobs", "returns", "labels", "audit", "orders"] as const;
   for (let page = 0; page < 10; page++) {
     let detail: Row;
     try {
-      detail = await api<Row>(`/work/${scope.kind}/${encodeURIComponent(scope.id)}?page=${page}`, { signal });
+      detail = await api<Row>(`/work/${scope.kind}/${encodeURIComponent(scope.id)}?page=${page}${workflow ? "&workflow=" + workflow : ""}`, { signal });
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) return { ...state, workMissing: true };
       throw e;
     }
     for (const key of keys) {
-      const merged = new Map(state[key].map((row) => [row.id, row]));
-      for (const row of detail[key]) merged.set(row.id, row);
+      const merged = new Map((state[key] ?? []).map((row) => [row.id, row]));
+      for (const row of detail[key] ?? []) merged.set(row.id, row);
       state[key] = [...merged.values()];
     }
     state.workCartonTotal = detail.cartonTotal;

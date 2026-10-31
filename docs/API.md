@@ -60,3 +60,14 @@ POST /maintenance/outbox requires Admin and CSRF. It marks a bounded audit-feed 
 ## Related work views
 
 GET /api/work/{kind}/{id}?page=0 accepts kind packing, trip or shipment. It requires a valid session and verifies the record belongs to that company; unknown or other-company records return 404 and unsupported kinds return 400. It returns related cartons (500 per page), cartonTotal/hasMore, manifests, trips, shipments, allocations, billings, jobs, returns, labels and audit. The UI merges authoritative details by ID before applying a display filter; it retains full loaded inventory for reservation and complete loaded shipment details for pricing. No command, approval, tenant permission or Tally posting policy is weakened by the view.
+# Workflow selection and orders
+
+`GET /api/state?workflow=StockFirst` and `GET /api/state?workflow=OrderFirst` select the operational workflow. `/api/work/{kind}/{id}` accepts the same workflow query parameter and rejects a record from the other workflow. Omission defaults to StockFirst for existing clients. Shared master/accounting settings are included in both responses. State includes `orders` and aggregate `orderProgress` (packed and actively assigned carton counts), independent of the paginated carton window.
+
+The UI sends `data.workflow` in every command, including the recoverable scanner envelope. New manifests and vehicle trips persist that workflow. OrderFirst manifests and shipments require an order link; selection and mutation checks prevent mixing workflow records. Legacy clients without a workflow retain their previous StockFirst behavior.
+
+`createOrder`: `{workflow, reference, customerId, warehouseId, destination, expectedCartons, lines, notes}`. `lines` is an optional empty array or positive SKU/quantity/unit totals for the entire order. The role must be Admin, DispatchSupervisor, PackingSupervisor or Billing. References are unique per company/workflow.
+
+`deleteOrder`: `{workflow, id, reason, confirmed:true}`. Only Admin/DispatchSupervisor can delete an order without any packing or shipment history.
+
+`saveManifest` / `importManifest` accept `orderId`. OrderFirst requires it and validates customer/warehouse and order limits; explicit StockFirst packing starts as general stock. `allocate` accepts `orderId` and checks the order's remaining carton/product requirements. OrderFirst additionally requires all cartons to originate from the exact order's packing lists.

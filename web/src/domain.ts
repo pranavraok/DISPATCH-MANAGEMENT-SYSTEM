@@ -10,6 +10,9 @@ export type Line = {
 export type Group = { marking: string; count: number; lines: Line[] };
 export type Row = Record<string, any>;
 export type State = {
+  workflow?: import("./workflow").Workflow;
+  orders?: Row[];
+  orderProgress?: Row[];
   workLoadedKey?: string;
   workComplete?: boolean;
   workCartonTotal?: number;

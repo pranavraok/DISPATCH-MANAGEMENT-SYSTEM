@@ -48,31 +48,42 @@ app.MapPost("/api/auth/login", async (Login input, HttpContext ctx, DispatchDb d
 }).RequireRateLimiting("login");
 app.MapGet("/api/auth/me", async (HttpContext ctx, DispatchDb db) => { var (u, s) = await Auth.User(ctx, db); return Results.Ok(new { user = new { u.Id, u.Name, u.Email, u.Roles, u.CompanyId }, csrf = s.Csrf }); });
 app.MapPost("/api/auth/logout", async (HttpContext ctx, DispatchDb db) => { var (_, s) = await Auth.User(ctx, db, true); db.Sessions.Remove(s); await db.SaveChangesAsync(); ctx.Response.Cookies.Delete("dispatch_session"); return Results.Ok(); });
-app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, int? page, int? pageSize, string? search) =>
+app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, int? page, int? pageSize, string? search, string? workflow) =>
 {
-    var (u, _) = await Auth.User(ctx, db); var c = u.CompanyId; var take = Math.Clamp(pageSize ?? 200, 1, 500); var skip = Math.Max(0, page ?? 0) * take; var cartonQuery = db.Cartons.Where(x => x.CompanyId == c); if (!string.IsNullOrWhiteSpace(search)) cartonQuery = cartonQuery.Where(x => x.Id.Contains(search) || x.Marking.Contains(search));
-    var counts = await db.Cartons.Where(x => x.CompanyId == c).GroupBy(x => x.State).Select(g => new { state = g.Key, count = g.Count() }).ToListAsync();
+    var (u, _) = await Auth.User(ctx, db); var c = u.CompanyId; var flow = Workflows.Parse(workflow); var take = Math.Clamp(pageSize ?? 200, 1, 500); var skip = Math.Max(0, page ?? 0) * take;
+    var manifests = db.Manifests.Where(x => x.CompanyId == c && x.Workflow == flow);
+    var shipments = db.Shipments.Where(x => x.CompanyId == c && x.Workflow == flow);
+    var flowCartons = db.Cartons.Where(x => x.CompanyId == c && manifests.Any(m => m.Id == x.ManifestId));
+    var cartonQuery = flowCartons; if (!string.IsNullOrWhiteSpace(search)) cartonQuery = cartonQuery.Where(x => x.Id.Contains(search) || x.Marking.Contains(search));
+    var counts = await flowCartons.GroupBy(x => x.State).Select(g => new { state = g.Key, count = g.Count() }).ToListAsync();
     return Results.Ok(new
     {
         company = await db.Companies.SingleAsync(x => x.Id == c),
+        workflow = flow,
+        orders = await db.Orders.Where(x => x.CompanyId == c && x.Workflow == flow).OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync(),
+        orderProgress = await db.Orders.Where(o => o.CompanyId == c && o.Workflow == flow).OrderByDescending(o => o.CreatedAt).Take(500).Select(o => new {
+            orderId = o.Id,
+            packedCartons = db.Cartons.Count(box => box.CompanyId == c && box.State != "Retired" && manifests.Any(m => m.Id == box.ManifestId && m.OrderId == o.Id)),
+            assignedCartons = db.Allocations.Count(a => a.CompanyId == c && a.Active && shipments.Any(s => s.Id == a.ShipmentId && s.OrderId == o.Id && s.State != "Cancelled"))
+        }).ToListAsync(),
         warehouses = await db.Warehouses.Where(x => x.CompanyId == c).ToListAsync(),
         products = await db.Products.Where(x => x.CompanyId == c).OrderBy(x => x.Sku).Take(500).ToListAsync(),
         customers = await db.Customers.Where(x => x.CompanyId == c).Take(500).ToListAsync(),
-        manifests = await db.Manifests.Where(x => x.CompanyId == c).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(),
+        manifests = await manifests.OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(),
         cartons = await cartonQuery.OrderBy(x => x.Id).Skip(skip).Take(take).ToListAsync(),
         cartonTotal = await cartonQuery.CountAsync(),
         counts,
-        trips = await db.Trips.Where(x => x.CompanyId == c).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(),
-        shipments = await db.Shipments.Where(x => x.CompanyId == c).OrderByDescending(x => x.Id).Take(200).ToListAsync(),
-        allocations = await db.Allocations.Where(x => x.CompanyId == c && x.Active).Take(10000).ToListAsync(),
-        loadingSessions = await db.LoadingSessions.Where(x => x.CompanyId == c && x.UserId == u.Id && x.Active).ToListAsync(),
-        billings = await db.Billings.Where(x => x.CompanyId == c).OrderByDescending(x => x.Revision).Take(200).ToListAsync(),
-        jobs = await db.Jobs.Where(x => x.CompanyId == c).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(),
-        labels = await db.Labels.Where(x => x.CompanyId == c).OrderByDescending(x => x.CreatedAt).Take(30).ToListAsync(),
-        returns = await db.Returns.Where(x => x.CompanyId == c).Take(100).ToListAsync(),
+        trips = await db.Trips.Where(x => x.CompanyId == c && x.Workflow == flow).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(),
+        shipments = await shipments.OrderByDescending(x => x.Id).Take(200).ToListAsync(),
+        allocations = await db.Allocations.Where(x => x.CompanyId == c && x.Active && shipments.Any(s => s.Id == x.ShipmentId)).Take(10000).ToListAsync(),
+        loadingSessions = await db.LoadingSessions.Where(x => x.CompanyId == c && x.UserId == u.Id && x.Active && shipments.Any(s => s.Id == x.ShipmentId)).ToListAsync(),
+        billings = await db.Billings.Where(x => x.CompanyId == c && shipments.Any(s => s.Id == x.ShipmentId)).OrderByDescending(x => x.Revision).Take(200).ToListAsync(),
+        jobs = await db.Jobs.Where(x => x.CompanyId == c && shipments.Any(s => s.Id == x.ShipmentId)).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(),
+        labels = await db.Labels.Where(x => x.CompanyId == c && x.Workflow == flow).OrderByDescending(x => x.CreatedAt).Take(30).ToListAsync(),
+        returns = await db.Returns.Where(x => x.CompanyId == c && shipments.Any(s => s.Id == x.ShipmentId)).Take(100).ToListAsync(),
         mapping = await db.Mappings.SingleAsync(x => x.CompanyId == c),
         connectors = await db.Connectors.Where(x => x.CompanyId == c).Select(x => new { x.Id, x.Name, x.ExpectedCompany, x.Environment, x.Revoked, x.LastSeen, x.Diagnostics }).ToListAsync(),
-        audit = await db.Audit.Where(x => x.CompanyId == c).OrderByDescending(x => x.At).Take(80).ToListAsync(),
+        audit = await db.Audit.Where(x => x.CompanyId == c && (x.Workflow == null || x.Workflow == flow)).OrderByDescending(x => x.At).Take(80).ToListAsync(),
         users = u.Roles.Contains("Admin") ? await db.Users.Where(x => x.CompanyId == c).Select(x => new { x.Id, x.Name, x.Email, x.Roles, x.Active }).ToListAsync() : null,
         serverTime = DateTimeOffset.UtcNow,
         postingEnabled = false

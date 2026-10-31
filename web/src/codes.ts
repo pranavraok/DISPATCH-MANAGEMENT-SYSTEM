@@ -1,6 +1,6 @@
 const cartonId = /^CT-([0-9A-F]{20})$/;
 const compactQr = /^Q([A-Za-z0-9_-]{14})\.([0-9A-Z]{1,6})$/;
-const referencePrefixes: Record<string, string> = { PK: "P", TR: "T", SH: "S", CT: "C" };
+const referencePrefixes: Record<string, string> = { PK: "P", TR: "T", SH: "S", CT: "C", OR: "O" };
 
 function encodeHex(hex: string) {
   return btoa(String.fromCharCode(...hex.match(/../g)!.map((pair) => parseInt(pair, 16))))
@@ -9,7 +9,7 @@ function encodeHex(hex: string) {
 
 /** Reversible display reference. No identity bits are truncated or regenerated. */
 export function shortReference(id: string) {
-  const match = /^(PK|TR|SH|CT)-([0-9A-F]{20})$/.exec(id);
+  const match = /^(PK|TR|SH|CT|OR)-([0-9A-F]{20})$/.exec(id);
   return match ? referencePrefixes[match[1]] + encodeHex(match[2]) : id;
 }
 

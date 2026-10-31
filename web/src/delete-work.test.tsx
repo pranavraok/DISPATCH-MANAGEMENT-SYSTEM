@@ -7,12 +7,12 @@ import {projectWork} from "./work";
 
 afterEach(()=>{cleanup();localStorage.clear();vi.unstubAllGlobals();});
 function setup({roles=["Admin"],failure=false,selected=false}={}) {
-  localStorage.clear(); window.history.replaceState(null,"",selected ? "/?work=packing:PACK-B#packing" : "/#packing");
+  localStorage.clear(); window.history.replaceState(null,"",selected ? "/?workflow=StockFirst&work=packing:PACK-B#packing" : "/?workflow=StockFirst#packing");
   const data=workFixture(), commands: any[]=[];
   const fetcher=vi.fn(async(url:string,options?:RequestInit)=>{
     const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}});
     if(url==="/api/auth/me")return json({user:{name:"Deletion tester",roles},csrf:"test"});
-    if(url==="/api/state")return json(data);
+    if(url.startsWith("/api/state"))return json(data);
     if(url.startsWith("/api/work/packing/")) {
       const id=url.split("/").at(-1)!;
       if(!data.manifests.some(m=>m.id===id))return json({error:"Deleted work should not be fetched"},404);

@@ -37,6 +37,8 @@ import { GroupedRecords, ShipmentChoices, WorkCardSummary } from "./work-ui";
 import { cartonQr, shortReference } from "./codes";
 import { shipmentName } from "./work";
 import { DispatchScanScreen, hasPendingScan } from "./scanner";
+import { OrderPicker, WorkstationSettings, SharedMasters } from "./workflow-ui";
+import { orderCartons } from "./workflow";
 export function Heading({
   eyebrow,
   title,
@@ -89,21 +91,29 @@ function DeleteWorkButton({ ctx, kind, record }: { ctx: Context; kind: "packing"
 }
 export function PackingScreen(ctx: Context) {
   const { s } = ctx;
-  const [edit, setEdit] = useState<Row | null>(null),
+  const [edit, setEdit] = useState<Row | null>(() => {
+      const id = new URLSearchParams(window.location.search).get("order");
+      const order = ctx.workflow === "OrderFirst" ? ctx.all.orders?.find(o => o.id === id) : null;
+      return order ? { orderId: order.id, customerId: order.customerId, warehouseId: order.warehouseId, name: "Packing " + order.reference } : null;
+    }),
     [importing, setImporting] = useState(false),
     [confirm, setConfirm] = useState<Row | null>(null),
     [checked, setChecked] = useState(false);
+  const canPack = ctx.all.products.length > 0 && (ctx.workflow !== "OrderFirst" || !!ctx.all.orders?.length);
+  function closeEditor() {
+    setEdit(null); const url = new URL(window.location.href); url.searchParams.delete("order"); window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
   return (
     <>
       <Heading
-        eyebrow="ALREADY PACKED. READY TO REGISTER."
+        eyebrow={ctx.workflow === "OrderFirst" ? "PACKING FOR A CUSTOMER ORDER" : "MANUFACTURED. ORDER PENDING."}
         title="Packing"
-        detail="Add what is inside the packed cartons. A supervisor checks and approves the list."
+        detail={ctx.workflow === "OrderFirst" ? "Choose the received order, then record its packed cartons." : "Record packed stock and print labels now. Assign a customer after an order arrives."}
         action={
           <div className="button-row">
             <button
               className="secondary"
-              disabled={!may(ctx, "PackingClerk", "PackingSupervisor")}
+              disabled={!canPack || !may(ctx, "PackingClerk", "PackingSupervisor")}
               onClick={() => setImporting(true)}
             >
               <Upload size={16} />
@@ -111,7 +121,7 @@ export function PackingScreen(ctx: Context) {
             </button>
             <button
               className="primary"
-              disabled={!may(ctx, "PackingClerk", "PackingSupervisor")}
+              disabled={!canPack || !may(ctx, "PackingClerk", "PackingSupervisor")}
               onClick={() => setEdit({})}
             >
               <Plus size={17} />
@@ -120,6 +130,8 @@ export function PackingScreen(ctx: Context) {
           </div>
         }
       />
+      {ctx.workflow === "OrderFirst" && !ctx.all.orders?.length && <div className="notice amber"><span>Record a customer order before packing.</span><button className="secondary small" onClick={() => ctx.navigate("orders")}>Open orders</button></div>}
+      {!ctx.all.products.length && <div className="notice amber"><span>Add your products before registering packed cartons.</span><button className="secondary small" onClick={() => ctx.navigate("setup")}>Shared settings</button></div>}
       <section className="panel">
         {s.manifests.length ? (
           <div className="table-wrap">
@@ -197,7 +209,7 @@ export function PackingScreen(ctx: Context) {
         )}
       </section>
       {edit && (
-        <PackedEditor ctx={ctx} manifest={edit} close={() => setEdit(null)} />
+        <PackedEditor ctx={ctx} manifest={edit} close={closeEditor} />
       )}
       {importing && (
         <ImportDialog ctx={ctx} close={() => setImporting(false)} />
@@ -265,7 +277,7 @@ function PackedEditor({
   close: () => void;
 }) {
   const [name, setName] = useState(m.name ?? ""),
-    [customer, setCustomer] = useState(m.customerId ?? ""),
+    [orderId, setOrderId] = useState(m.orderId ?? ""),
     [notes, setNotes] = useState(m.notes ?? ""),
     [groups, setGroups] = useState<Group[]>(
       m.groups
@@ -286,6 +298,8 @@ function PackedEditor({
     );
   const readonly =
     m.state === "Approved" || !may(ctx, "PackingClerk", "PackingSupervisor");
+  const orderFirst = ctx.workflow === "OrderFirst";
+  const order = ctx.all.orders?.find(o => o.id === orderId);
   function change(i: number, key: string, value: any) {
     setGroups((p) => p.map((g, j) => (j === i ? { ...g, [key]: value } : g)));
   }
@@ -299,8 +313,9 @@ function PackedEditor({
           e.preventDefault();
           const data = {
             name,
-            warehouseId: m.warehouseId ?? ctx.s.warehouses[0]?.id,
-            customerId: customer || null,
+            warehouseId: orderFirst ? order?.warehouseId : m.warehouseId ?? ctx.s.warehouses[0]?.id,
+            customerId: orderFirst ? order?.customerId : null,
+            orderId: orderFirst ? orderId : null,
             notes,
             groups,
             ...(m.id ? { id: m.id, version: m.version } : {}),
@@ -321,20 +336,9 @@ function PackedEditor({
             disabled={readonly}
           />
         </Field>
-        <Field label="Customer">
-          <select
-            value={customer}
-            onChange={(e) => setCustomer(e.target.value)}
-            disabled={readonly}
-          >
-            <option value="">General packed stock · allocate later</option>
-            {ctx.s.customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {orderFirst ? <OrderPicker ctx={ctx} value={orderId} onChange={setOrderId} disabled={readonly} required /> : <p className="notice">General stock. No customer is needed until an order arrives.</p>}
+        {orderFirst && order && <p className="order-packing-context"><strong>{ctx.all.customers.find(c => c.id === order.customerId)?.name}</strong> · {order.reference} · {order.expectedCartons} cartons ordered</p>}
+
         <div className="group-editors">
           {groups.map((g, i) => (
             <section className="group-editor" key={i}>
@@ -492,7 +496,7 @@ function PackedEditor({
           <strong>{number(groupTotal(groups))} cartons described</strong>
           <span>Contents are recorded per carton.</span>
         </div>
-        {!readonly && <button className="primary wide">Save draft</button>}
+        {!readonly && <button className="primary wide" disabled={orderFirst && !order}>Save draft</button>}
       </form>
     </Modal>
   );
@@ -503,6 +507,7 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
       errors: string[];
     } | null>(null),
     [name, setName] = useState("Imported packed stock"),
+    [orderId, setOrderId] = useState(""),
     [error, setError] = useState("");
   const template =
     "group,cartons,sku,quantity,unit\nA,4,SND01,100,packets\nB,3,SND01,80,packets\nC,2,ROS01,100,packets\nD,1,SND01,40,packets\nD,1,ROS01,20,packets\n";
@@ -566,6 +571,7 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
       <Field label="Packing list name">
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
+      {ctx.workflow === "OrderFirst" && <OrderPicker ctx={ctx} value={orderId} onChange={setOrderId} required />}
       <div className="upload-zone">
         <Upload size={25} />
         <strong>Choose a CSV or Excel workbook</strong>
@@ -619,13 +625,15 @@ function ImportDialog({ ctx, close }: { ctx: Context; close: () => void }) {
             className="primary wide"
             disabled={
               !!preview.errors.length ||
+              (ctx.workflow === "OrderFirst" && !orderId) ||
               !may(ctx, "PackingClerk", "PackingSupervisor")
             }
             onClick={async () => {
               const result = await action(ctx, "importManifest", {
                   name,
-                  warehouseId: ctx.s.warehouses[0]?.id,
-                  customerId: null,
+                  warehouseId: ctx.workflow === "OrderFirst" ? ctx.all.orders?.find(o => o.id === orderId)?.warehouseId : ctx.s.warehouses[0]?.id,
+                  customerId: ctx.workflow === "OrderFirst" ? ctx.all.orders?.find(o => o.id === orderId)?.customerId : null,
+                  orderId: ctx.workflow === "OrderFirst" ? orderId : null,
                   notes: "Validated import. No partial import performed.",
                   groups: preview.groups,
                 });
@@ -970,6 +978,7 @@ export function TripsScreen(ctx: Context) {
     [driver, setDriver] = useState(""),
     [transporter, setTransporter] = useState(""),
     [customer, setCustomer] = useState(s.customers[0]?.id ?? ""),
+    [orderId, setOrderId] = useState(""),
     [destination, setDestination] = useState(""),
     [ids, setIds] = useState<string[]>([]),
     [inventorySource, setInventorySource] = useState(""),
@@ -980,13 +989,15 @@ export function TripsScreen(ctx: Context) {
     if (!allocating || !inventorySource) { setInventoryData(null); setInventoryError(""); setInventoryBusy(false); return; }
     const controller = new AbortController();
     setInventoryData(null); setInventoryError(""); setInventoryBusy(true);
-    loadWorkState(controller.signal, { kind: "packing", id: inventorySource }).then((data) => {
+    loadWorkState(controller.signal, { kind: "packing", id: inventorySource }, ctx.workflow).then((data) => {
       if (controller.signal.aborted) return;
       if (data.workMissing) throw Error("Packing list not found.");
       setInventoryData(data);
     }).catch((e) => { if (!controller.signal.aborted) setInventoryError((e as Error).message); }).finally(() => { if (!controller.signal.aborted) setInventoryBusy(false); });
     return () => controller.abort();
-  }, [allocating, inventorySource]);
+  }, [allocating, inventorySource, ctx.workflow]);
+  const selectedOrder = ctx.all.orders?.find(o => o.id === orderId);
+  const remaining = selectedOrder ? selectedOrder.expectedCartons - orderCartons(ctx.all, selectedOrder) : null;
   const reservationContext = inventoryData ? { ...ctx, all: inventoryData } : ctx;
   const sourceCartons = inventorySource ? inventoryData?.workLoadedKey === "packing:" + inventorySource ? inventoryData.cartons.filter((c) => c.manifestId === inventorySource) : [] : ctx.work.kind === "packing" ? s.cartons : ctx.all.cartons;
   return (
@@ -1030,6 +1041,7 @@ export function TripsScreen(ctx: Context) {
                   onClick={() => {
                     setAllocating(t.id);
                     setIds([]);
+                    setOrderId("");
                     setInventorySource("");
                   }}
                 >
@@ -1239,9 +1251,16 @@ export function TripsScreen(ctx: Context) {
           close={() => setAllocating(null)}
         >
           <p>Vehicle: <strong>{ctx.all.trips.find((t) => t.id === allocating)?.vehicle ?? allocating}</strong> · {allocating}</p>
+          <OrderPicker ctx={ctx} value={orderId} required={ctx.workflow === "OrderFirst"} onChange={id => {
+            setOrderId(id); setIds([]); setInventorySource("");
+            const order = ctx.all.orders?.find(o => o.id === id);
+            if (order) { setCustomer(order.customerId); setDestination(order.destination); }
+          }} />
+          {selectedOrder && <p className="notice">{remaining} of {selectedOrder.expectedCartons} ordered cartons remain to assign. Partial shipments are allowed.</p>}
           <Field label="Customer">
             <select
               value={customer}
+              disabled={!!selectedOrder || ctx.workflow === "OrderFirst"}
               onChange={(e) => {
                 setCustomer(e.target.value);
                 setIds([]);
@@ -1257,13 +1276,14 @@ export function TripsScreen(ctx: Context) {
           <Field label="Delivery destination">
             <input
               value={destination}
+              disabled={!!selectedOrder || ctx.workflow === "OrderFirst"}
               onChange={(e) => setDestination(e.target.value)}
             />
           </Field>
           <Field label="Choose packing list">
             <select aria-label="Choose packing list" value={inventorySource} onChange={(e) => { setInventorySource(e.target.value); setInventoryData(null); setIds([]); }}>
               <option value="">All shown packing lists</option>
-              {ctx.all.manifests.filter((m) => m.state === "Approved").map((m) => <option key={m.id} value={m.id}>{m.name} · {m.id}</option>)}
+              {ctx.all.manifests.filter((m) => m.state === "Approved" && (ctx.workflow !== "OrderFirst" || m.orderId === orderId)).map((m) => <option key={m.id} value={m.id}>{m.name} · {m.id}</option>)}
             </select>
           </Field>
           {inventoryBusy && <p role="status">Loading this packing list’s cartons…</p>}
@@ -1276,6 +1296,7 @@ export function TripsScreen(ctx: Context) {
                 (c) =>
                   c.state === "Available" &&
                   c.verified &&
+                  (ctx.workflow !== "OrderFirst" || ctx.all.manifests.some(m => m.id === c.manifestId && m.orderId === orderId)) &&
                   !c.held &&
                   (!c.customerId || c.customerId === customer),
               )}>{(records) => <><div className="group-actions"><button className="secondary small" onClick={() => setIds((previous) => records.every((c) => previous.includes(c.id)) ? previous.filter((id) => !records.some((c) => c.id === id)) : [...new Set([...previous, ...records.map((c) => c.id)])])}>{records.every((c) => ids.includes(c.id)) ? "Clear this group" : "Select group (" + records.length + (records.length === 1 ? " carton)" : " cartons)")}</button></div><div className="allocation-list">{records.map((c) => (
@@ -1303,12 +1324,13 @@ export function TripsScreen(ctx: Context) {
               ))}</div></>}</GroupedRecords>
           <button
             className="primary wide"
-            disabled={!ids.length || inventoryBusy || !!inventoryError}
+            disabled={!ids.length || inventoryBusy || !!inventoryError || (ctx.workflow === "OrderFirst" && !selectedOrder) || (remaining !== null && ids.length > remaining)}
             onClick={async () => {
               const result = await action(ctx, "allocate", {
                   tripId: allocating,
                   customerId: customer,
                   destination,
+                  orderId: orderId || null,
                   ids,
                 });
               if (result) { setAllocating(null); ctx.selectWork({ kind: "shipment", id: result.id }); }
@@ -1657,8 +1679,10 @@ export function SetupScreen(ctx: Context) {
       <Heading
         eyebrow="CONNECTED, WITH THE RIGHT BOUNDARIES"
         title="Settings"
-        detail="Manage users and connect the Tally PC."
+        detail="One setup for both workflows. Manage shared products, customers, devices and the Tally connection."
       />
+      <SharedMasters ctx={ctx} />
+      <WorkstationSettings ctx={ctx} />
       <div className="setup-steps">
         {[
           ["1", "Pair connector", "Install beside Tally. Outbound HTTPS only."],

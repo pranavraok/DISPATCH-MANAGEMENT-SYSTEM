@@ -14,7 +14,7 @@ let meResult: Promise<Response> | undefined;
 let requests: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  window.history.replaceState(null, "", "/");
+  window.history.replaceState(null, "", "/?workflow=StockFirst");
   signedOut = false;
   stateFailures = 0;
   meFailure = false;
@@ -26,7 +26,7 @@ beforeEach(() => {
       if (meFailure) throw new TypeError("Failed to fetch");
       return signedOut ? json({ error: "Session expired." }, 401) : json({ user, csrf: "restored-csrf" });
     }
-    if (url === "/api/state") {
+    if (url.startsWith("/api/state")) {
       if (stateFailures-- > 0) return json({ error: "Database temporarily unavailable." }, 503);
       return signedOut ? json({ error: "Session expired." }, 401) : json(sampleState());
     }
@@ -59,7 +59,7 @@ describe("saved sign-in on refresh", () => {
     expect(screen.getByRole("heading", { name: "Opening your workspace…" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
     await act(async () => { finish(json({ user, csrf: "restored-csrf" })); });
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Pack before order" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(requests.mock.calls.every(([, options]) => options?.credentials === "include")).toBe(true);
   });
@@ -77,7 +77,7 @@ describe("saved sign-in on refresh", () => {
     expect(await screen.findByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Pack before order" })).toBeTruthy();
     expect(requests.mock.calls.some(([url]) => url === "/api/auth/login")).toBe(false);
   });
 
@@ -88,11 +88,11 @@ describe("saved sign-in on refresh", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
     meFailure = false;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Pack before order" })).toBeTruthy();
   });
 
   it("keeps the selected page when the application is remounted after a refresh", async () => {
-    window.history.replaceState(null, "", "/#packing");
+    window.history.replaceState(null, "", "/?workflow=StockFirst#packing");
     const first = render(<App />);
     await screen.findByRole("heading", { name: /^Packing/ });
     fireEvent.click(screen.getByRole("button", { name: /^Reports/ }));
@@ -105,7 +105,7 @@ describe("saved sign-in on refresh", () => {
 
   it("restores the session's CSRF token and stays signed out after an explicit logout", async () => {
     const first = render(<App />);
-    await screen.findByRole("heading", { name: "Home" });
+    await screen.findByRole("heading", { name: "Pack before order" });
     fireEvent.click(screen.getByRole("button", { name: /Test Operator/ }));
     await screen.findByLabelText("Password");
     expect(signedOut).toBe(true);
@@ -117,10 +117,10 @@ describe("saved sign-in on refresh", () => {
   it("does not pretend to sign out when the logout request fails", async () => {
     logoutFailure = true;
     render(<App />);
-    await screen.findByRole("heading", { name: "Home" });
+    await screen.findByRole("heading", { name: "Pack before order" });
     fireEvent.click(screen.getByRole("button", { name: /Test Operator/ }));
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Home" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Pack before order" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
@@ -133,7 +133,7 @@ describe("saved sign-in on refresh", () => {
     await screen.findByRole("button", { name: "Try again" });
     expect(screen.queryByLabelText("Password")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "Home" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "How are we preparing this dispatch?" })).toBeTruthy();
     expect(requests.mock.calls.filter(([url]) => url === "/api/auth/login")).toHaveLength(1);
   });
 });

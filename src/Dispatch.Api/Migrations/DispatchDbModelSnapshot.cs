@@ -91,6 +91,9 @@ namespace Dispatch.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Workflow")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "At");
@@ -305,6 +308,75 @@ namespace Dispatch.Api.Migrations
                     b.ToTable("Customers");
                 });
 
+            modelBuilder.Entity("Dispatch.DispatchOrder", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CompanyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Destination")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("ExpectedCartons")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Lines")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WarehouseId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Workflow")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("StockFirst");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "CustomerId");
+
+                    b.HasIndex("CompanyId", "Id")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "WarehouseId");
+
+                    b.HasIndex("CompanyId", "Workflow", "Reference")
+                        .IsUnique();
+
+                    b.ToTable("Orders", null, t =>
+                        {
+                            t.HasCheckConstraint("order_cartons", "\"ExpectedCartons\" BETWEEN 1 AND 10000");
+
+                            t.HasCheckConstraint("order_workflow", "\"Workflow\" IN ('StockFirst','OrderFirst')");
+                        });
+                });
+
             modelBuilder.Entity("Dispatch.LabelJob", b =>
                 {
                     b.Property<string>("Id")
@@ -332,6 +404,12 @@ namespace Dispatch.Api.Migrations
                     b.Property<string>("State")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("Workflow")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("StockFirst");
 
                     b.HasKey("Id");
 
@@ -424,6 +502,9 @@ namespace Dispatch.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("OrderId")
+                        .HasColumnType("text");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasColumnType("text");
@@ -436,14 +517,29 @@ namespace Dispatch.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Workflow")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("StockFirst");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Id")
                         .IsUnique();
 
+                    b.HasIndex("CompanyId", "OrderId");
+
                     b.HasIndex("CompanyId", "WarehouseId");
 
-                    b.ToTable("Manifests");
+                    b.HasIndex("CompanyId", "Workflow", "CreatedAt");
+
+                    b.ToTable("Manifests", t =>
+                        {
+                            t.HasCheckConstraint("manifest_order_required", "\"Workflow\" = 'StockFirst' OR \"OrderId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("manifest_workflow", "\"Workflow\" IN ('StockFirst','OrderFirst')");
+                        });
                 });
 
             modelBuilder.Entity("Dispatch.Mapping", b =>
@@ -776,6 +872,9 @@ namespace Dispatch.Api.Migrations
                     b.Property<string>("LoadApprovedBy")
                         .HasColumnType("text");
 
+                    b.Property<string>("OrderId")
+                        .HasColumnType("text");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasColumnType("text");
@@ -788,6 +887,12 @@ namespace Dispatch.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Workflow")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("StockFirst");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "CustomerId");
@@ -795,11 +900,20 @@ namespace Dispatch.Api.Migrations
                     b.HasIndex("CompanyId", "Id")
                         .IsUnique();
 
+                    b.HasIndex("CompanyId", "OrderId");
+
                     b.HasIndex("CompanyId", "TripId");
 
                     b.HasIndex("CompanyId", "WarehouseId");
 
-                    b.ToTable("Shipments");
+                    b.HasIndex("CompanyId", "Workflow");
+
+                    b.ToTable("Shipments", t =>
+                        {
+                            t.HasCheckConstraint("shipment_order_required", "\"Workflow\" = 'StockFirst' OR \"OrderId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("shipment_workflow", "\"Workflow\" IN ('StockFirst','OrderFirst')");
+                        });
                 });
 
             modelBuilder.Entity("Dispatch.Trip", b =>
@@ -833,12 +947,23 @@ namespace Dispatch.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Workflow")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("StockFirst");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "Id")
                         .IsUnique();
 
-                    b.ToTable("Trips");
+                    b.HasIndex("CompanyId", "Workflow", "CreatedAt");
+
+                    b.ToTable("Trips", t =>
+                        {
+                            t.HasCheckConstraint("trip_workflow", "\"Workflow\" IN ('StockFirst','OrderFirst')");
+                        });
                 });
 
             modelBuilder.Entity("Dispatch.UnitConversion", b =>
@@ -1026,6 +1151,29 @@ namespace Dispatch.Api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Dispatch.DispatchOrder", b =>
+                {
+                    b.HasOne("Dispatch.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dispatch.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustomerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Dispatch.Warehouse", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "WarehouseId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Dispatch.LabelJob", b =>
                 {
                     b.HasOne("Dispatch.Company", null)
@@ -1065,6 +1213,12 @@ namespace Dispatch.Api.Migrations
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Dispatch.DispatchOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OrderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Dispatch.Warehouse", null)
                         .WithMany()
@@ -1172,6 +1326,12 @@ namespace Dispatch.Api.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Dispatch.DispatchOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OrderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Dispatch.Trip", null)
                         .WithMany()

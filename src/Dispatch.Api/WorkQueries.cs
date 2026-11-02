@@ -4,11 +4,11 @@ namespace Dispatch;
 
 public static class WorkQueries
 {
-    public static async Task<IResult> Read(string kind, string id, int? page, string? workflow, HttpContext ctx, DispatchDb db)
+    public static async Task<IResult> Read(string kind, string id, int? page, string? workflow, HttpContext ctx, DispatchDb db, DeploymentScope deployment)
     {
         var (user, _) = await Auth.User(ctx, db);
         var company = user.CompanyId;
-        var flow = Workflows.Parse(workflow);
+        var flow = deployment.Site?.Resolve(workflow) ?? Workflows.Parse(workflow);
         var manifests = db.Manifests.Where(m => m.CompanyId == company && m.Workflow == flow);
         var shipments = db.Shipments.Where(s => s.CompanyId == company && s.Workflow == flow);
         // Keep this base query independent: packing reads derive shipments from allocations below.

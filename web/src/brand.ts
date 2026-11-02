@@ -1,8 +1,11 @@
+import { site } from "./site";
 export const brand = {
-  name: "Electro Group of Industries",
-  business: "Electrotech Services",
-  shortName: "ELECTRO",
-  email: "admin@electrogroup.test",
+  get name() { return site?.companyName ?? "Electro Group of Industries"; },
+  get business() { return site?.slug === "aromazon" ? "Dispatch workspace" : "Dispatch management"; },
+  get shortName() { return site?.shortName ?? "ELECTRO"; },
+  get email() { return site?.email ?? "admin@electrogroup.test"; },
+  get tagline() { return site?.tagline ?? "GROUP OF INDUSTRIES"; },
+  get initial() { return site?.shortName.charAt(0) ?? "E"; },
 };
 
 const labels: Record<string, string> = {
@@ -16,10 +19,12 @@ const labels: Record<string, string> = {
   LoadApproved: "Load approved",
   BillingDraft: "Bill draft",
   BillingApproved: "Bill approved",
-  InvoiceBlocked: "Waiting for Tally setup",
-  Blocked: "Waiting for Tally setup",
+  InvoiceCompleted: "Invoice completed",
+  Completed: "Completed",
+  InvoiceBlocked: "Waiting for Tally confirmation",
+  Blocked: "Waiting for Tally confirmation",
   Unvalidated: "Not checked",
-  Allocated: "Cartons reserved",
+  Allocated: "Boxes reserved",
   Quarantine: "Keep separate",
   Disposal: "For disposal",
   AwaitingAccountingRestock: "Waiting for accounts",

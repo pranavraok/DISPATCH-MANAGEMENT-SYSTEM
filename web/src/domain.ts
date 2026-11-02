@@ -39,6 +39,7 @@ export type State = {
   users: Row[];
   serverTime: string;
   postingEnabled: boolean;
+  demoTaxSetup?: boolean;
 };
 export const parse = <T = any>(value: any): T =>
   typeof value === "string" ? JSON.parse(value) : value;

@@ -66,7 +66,7 @@ describe("one scan under Labels",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Scan for dispatch"}));
     fireEvent.change(screen.getByLabelText("Customer shipment"),{target:{value:"SHIP-B"}});
     await waitFor(()=>expect(screen.queryByText("Opening selected work.")).toBeNull());
-    fireEvent.click(screen.getByRole("button",{name:"Start scanning & turn on sound"}));
+    fireEvent.click(screen.getByRole("button",{name:"Start scanning & turn on voice"}));
     const input=screen.getByLabelText("SCAN CARTON QR") as HTMLInputElement;
     await waitFor(()=>expect(input.disabled).toBe(false));
     fireEvent.focus(input);fireEvent.change(input,{target:{value:"K1|demo|CT-TWO|1"}});

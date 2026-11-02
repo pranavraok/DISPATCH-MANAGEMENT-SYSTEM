@@ -45,7 +45,7 @@ New standard carton labels encode `Q<14-character base64url identity>.<uppercase
 | saveProduct | sku, name, unit, optional tallyId/tallyName, reason | Billing |
 | saveCustomer | optional id, name, address, optional tallyId/gstIn, reason | Billing |
 | saveConversion | productId, fromUnit, factor, reason | Billing |
-| pairConnector | name, expectedCompany (test only) | Admin |
+| pairConnector | name, expectedCompany | Admin |
 | revokeConnector | id, reason | Admin |
 | createUser | name, email, password (12+), roles[] | Admin |
 
@@ -53,7 +53,7 @@ Admin may perform any role operation. MD may read but cannot mutate. A group is 
 
 Print states: Prepared, Submitted, Failed, Unknown, OperatorConfirmed. Return dispositions: Quarantine, Disposal, AwaitingAccountingRestock. Only the original carton IDs/revisions are reprinted. No generic endpoint permits setting a posting job to Confirmed.
 
-Connector routes require X-Connector-Id and X-Connector-Key; no browser cookie. POST /connector/heartbeat requires company, environment=Test, tallyReachable, version, detail. POST /connector/masters updates already-linked native item IDs only, at most 500 items [{nativeId,name,unit,balance}], with exact company/environment. Unknown Tally masters are not automatically created. GET /connector/jobs/next returns 409 Blocked in this stage.
+Connector routes require X-Connector-Id and X-Connector-Key; no browser cookie. POST /connector/heartbeat requires the exact company, environment=Production, tallyReachable, version and detail. POST /connector/masters updates linked native items and customer ledgers from the latest exact-company snapshot. Unknown Tally masters are not automatically created. Electro's connector can queue production invoice jobs only after the mapping is validated; it imports the voucher and confirms it through exact-reference readback before the driver-document gate opens.
 
 POST /maintenance/outbox requires Admin and CSRF. It marks a bounded audit-feed polling batch delivered, not delivery to a printer or Tally.
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
-    "app": {"runtime": "container", "root": ".", "entrypoint": "Dockerfile.vercel"}
+    "electro-dispatch": {"runtime": "container", "root": ".", "entrypoint": "Dockerfile.vercel"}
   },
-  "rewrites": [{"source": "/(.*)", "destination": {"service": "app"}}]
+  "rewrites": [{"source": "/(.*)", "destination": {"service": "electro-dispatch"}}]
 }

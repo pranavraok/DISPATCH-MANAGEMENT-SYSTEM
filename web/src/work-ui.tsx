@@ -15,21 +15,23 @@ export function WorkCardSummary({ state, scope, fallbackTitle = "Other work", co
     kind = "Packing list"; title = m?.name ?? "Packing list"; status = m?.state ?? "";
     subtitle = m?.customerId ? state.customers.find((c) => c.id === m.customerId)?.name ?? "Customer not loaded" : "General stock";
     const lines = cartons ? cartons.flatMap((c) => parse<Line[]>(c.lines)) : groups.flatMap((g) => g.lines);
-    facts = [[cartons ? "Cartons shown" : "Cartons", number(cartons?.length ?? groups.reduce((n, g) => n + g.count, 0))], ["Item types", number(new Set(lines.map((line) => line.sku)).size)]];
+    facts = [[cartons ? "Boxes shown" : "Boxes", number(cartons?.length ?? groups.reduce((n, g) => n + g.count, 0))], ["Item types", number(new Set(lines.map((line) => line.sku)).size)]];
   } else if (scope.kind === "shipment") {
     const sh = state.shipments.find((row) => row.id === scope.id);
     const allocations = state.allocations.filter((a) => a.active && a.shipmentId === scope.id);
     kind = "Shipment"; title = state.customers.find((c) => c.id === sh?.customerId)?.name ?? "Customer shipment";
-    subtitle = sh?.destination || "Destination not set"; status = sh?.state ?? "";
-    facts = [[cartons ? "Cartons shown" : "Cartons", number(cartons?.length ?? allocations.length)], ["Loaded", number(cartons ? cartons.filter((c) => ["Loaded", "Departed"].includes(c.state)).length : allocations.filter((a) => ["Loaded", "Departed"].includes(a.state)).length)]];
+    subtitle = sh?.destination || "Destination not set";
+    const invoice = state.jobs.find((job) => job.shipmentId === scope.id && job.state === "Confirmed");
+    status = sh?.state === "Departed" ? "Completed" : invoice ? "InvoiceCompleted" : sh?.state ?? "";
+    facts = [[cartons ? "Boxes shown" : "Boxes", number(cartons?.length ?? allocations.length)], ["Loaded", number(cartons ? cartons.filter((c) => ["Loaded", "Departed"].includes(c.state)).length : allocations.filter((a) => ["Loaded", "Departed"].includes(a.state)).length)]];
   } else if (scope.kind === "trip") {
     const trip = state.trips.find((row) => row.id === scope.id);
     const shipments = state.shipments.filter((sh) => sh.tripId === scope.id);
     const ids = new Set(shipments.map((sh) => sh.id));
     kind = "Vehicle trip"; title = trip?.vehicle ?? "Vehicle trip"; subtitle = trip?.driver || "Driver not set"; status = trip?.state ?? "";
-    facts = [["Shipments", number(shipments.length)], ["Cartons", number(state.allocations.filter((a) => a.active && ids.has(a.shipmentId)).length)]];
+    facts = [["Shipments", number(shipments.length)], ["Boxes", number(state.allocations.filter((a) => a.active && ids.has(a.shipmentId)).length)]];
   }
-  const tone = ["Approved", "Open", "LoadApproved", "Departed"].includes(status) ? "sage" : status ? "amber" : "neutral";
+  const tone = ["Approved", "Open", "LoadApproved", "Departed", "Completed", "InvoiceCompleted"].includes(status) ? "sage" : status ? "amber" : "neutral";
   return <>
     <div className="work-card-top"><span className="work-card-kind">{kind}</span>{status && <span className={"badge " + tone}>{plainLabel(status)}</span>}</div>
     {heading ? <h2 className="work-card-title">{title}</h2> : <strong className="work-card-title">{title}</strong>}
@@ -66,7 +68,7 @@ export function WorkSelector({ ctx, companyWide = false }: { ctx: Context; compa
 export function GroupedRecords({ ctx, rows, type, children, focusable = true, expand = false }: { ctx: Context; rows: Row[]; type: Parameters<typeof groupWork>[2]; children: (rows: Row[], group: WorkGroup) => ReactNode; focusable?: boolean; expand?: boolean }) {
   const accordionId = useId();
   const groups = groupWork(ctx.all, rows, type);
-  const noun = { packing: "packing list", carton: "carton", shipment: "shipment", label: "print job", return: "return", job: "invoice request", audit: "event" }[type];
+  const noun = { packing: "packing list", carton: "box", shipment: "shipment", label: "print job", return: "return", job: "invoice request", audit: "event" }[type];
   return <div className="work-groups record-card-grid">{groups.map((g) => <details className="record-group work-card" key={g.key} name={expand ? undefined : accordionId} open={expand || groups.length === 1}>
     <summary><WorkCardSummary state={ctx.all} scope={g.scope} fallbackTitle={g.title} cartons={type === "carton" ? g.rows : undefined} countText={g.rows.length + " " + noun + (g.rows.length === 1 ? "" : "s") + " · View details"} /></summary>
     <div className="group-actions"><p>{g.detail}</p>{focusable && g.scope.kind !== "all" && workKey(g.scope) !== workKey(ctx.work) && <button className="text-link" onClick={() => ctx.selectWork(g.scope)}>Show only this {g.scope.kind === "packing" ? "packing list" : g.scope.kind} <ArrowRight size={14} /></button>}</div>
@@ -92,9 +94,11 @@ export function ShipmentOverview({ ctx }: { ctx: Context }) {
       <div className="shipment-card-grid">{s.shipments.filter((sh) => sh.tripId === t.id).map((sh) => {
         const allocations = ctx.all.allocations.filter((a) => a.active && a.shipmentId === sh.id);
         const target = sh.state === "Cancelled" || sh.state === "Departed" ? "trips" : sh.loadApproved ? "billing" : "loading";
-        return <div className="shipment-card" key={sh.id}><div><strong>{s.customers.find((c) => c.id === sh.customerId)?.name ?? sh.customerId}</strong><p>{sh.destination}</p><small title={sh.id}>{shortReference(sh.id)} · {plainLabel(sh.state)}</small></div><div><strong>{allocations.filter((a) => a.state === "Loaded" || a.state === "Departed").length} / {allocations.length}</strong><small>cartons loaded</small></div><button className="secondary" aria-label={"Open shipment " + sh.id} onClick={() => open({ kind: "shipment", id: sh.id }, target)}>Open shipment <ArrowRight size={14} /></button></div>;
+        const hasConfirmedInvoice = ctx.all.jobs.some((job) => job.shipmentId === sh.id && job.state === "Confirmed");
+        const displayStatus = sh.state === "Departed" ? "Completed" : hasConfirmedInvoice ? "InvoiceCompleted" : sh.state;
+        return <div className="shipment-card" key={sh.id}><div><strong>{s.customers.find((c) => c.id === sh.customerId)?.name ?? sh.customerId}</strong><p>{sh.destination}</p><small title={sh.id}>{shortReference(sh.id)} · {plainLabel(displayStatus)}</small></div><div><strong>{allocations.filter((a) => a.state === "Loaded" || a.state === "Departed").length} / {allocations.length}</strong><small>boxes loaded</small></div><button className="secondary" aria-label={"Open shipment " + sh.id} onClick={() => open({ kind: "shipment", id: sh.id }, target)}>Open shipment <ArrowRight size={14} /></button></div>;
       })}</div>
-      {!s.shipments.some((sh) => sh.tripId === t.id) && <div className="group-actions"><p>No customer shipments on this trip yet.</p><button className="text-link" onClick={() => open({ kind: "trip", id: t.id }, "trips")}>Add customer & cartons <ArrowRight size={14} /></button></div>}
+      {!s.shipments.some((sh) => sh.tripId === t.id) && <div className="group-actions"><p>No customer shipments on this trip yet.</p><button className="text-link" onClick={() => open({ kind: "trip", id: t.id }, "trips")}>Add customer & boxes <ArrowRight size={14} /></button></div>}
     </details>)}</div>
   </section>;
 }

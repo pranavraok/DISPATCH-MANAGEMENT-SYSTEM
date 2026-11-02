@@ -2,10 +2,14 @@
 
 Build date: 30 October 2026. This record distinguishes executed software checks from simulated fixtures and real external verification.
 
+## Electro production invoice work — 1 November 2026
+
+The Electro site is being converted from the earlier Test-only connector scope to the company's production scope. The app validates the exact company and synced ledgers/items, queues a fixed invoice payload, uses a durable connector journal and unique dispatch reference, imports through Tally XML, reconciles by exact-reference readback, and exposes an invoice PDF only after confirmation. The printed output includes fields from the supplied Sales 501 example. The production source builds successfully. A real voucher create/readback has not yet been completed; validate the import against a voucher exported from this exact company before relying on it for accounting. Aromazen remains outside this change.
+
 | Check | Result | Evidence / boundary |
 |---|---|---|
 | ASP.NET Core API build | PASS, 0 warnings / 0 errors | .NET SDK 10.0.403, runtime 10.0.14, EF/Npgsql 10 |
-| Windows connector build | PASS, 0 warnings / 0 errors | Source compiles; not installed on actual Tally PC |
+| Windows connector build | PASS, 0 warnings / 0 errors | Production-scoped build installed on the Electro Tally PC; current heartbeat and master sync visible |
 | React/TypeScript production build | PASS | TypeScript 7.0.2, React 19.3.1, Vite 8.3.5; heavy PDF/Excel libraries load on demand |
 | Frontend domain tests | 15 PASS | CSV/decimal/QR validation, mixed totals, leading zeros, export formula injection |
 | Connector fixture tests | 7 PASS | Company XML escaping, DTD/XXE rejection, journal reopening, send uncertainty, hash immutability and blind retry guards |
@@ -15,11 +19,11 @@ Build date: 30 October 2026. This record distinguishes executed software checks 
 | PostgreSQL backup/restore | PASS | Official pg_dump/pg_restore 18.4; all 23 table counts and posting job hashes matched a new disposable UTF-8 restore target. Live source was not overwritten |
 | Windows self-contained packaging | PASS | win-x64 Release publication succeeded. Actual separate-PC installation remains pending |
 | Actual application A4 PDF function | PASS generation, render and decode | A4 dimensions, no-clipping visual inspection, mixed text and independent QR round trip all passed; actual paper/scanner still pending |
-| Vercel app + .NET API | ACTIVE | Root and /api/health return 200; hosted PostgreSQL reports Connected. Administrator/MD logins and cloud draft persistence passed |
+| Vercel app + .NET API | ACTIVE | Production release Ready; /api/health returns 200, PostgreSQL Connected, production invoice mapping enabled |
 | GitHub source push | PASS | Native connected GitHub write was denied; local Git credentials successfully pushed main to the exact user-provided repository |
 | Cloud DB provisioning | Connected, temporary trial | Free temporary database expires 2 November 2026 at 13:10 UTC unless claimed. No claim of permanent production storage |
 | Vercel runtime environment setup | PASS | User specifically approved on 30 October 2026. Credentials are sensitive production environment values, not frontend variables or source files |
-| Tally invoice creation/readback | NOT IMPLEMENTED / NOT VERIFIED | No Create adapter is enabled; jobs remain Blocked |
+| Tally invoice creation/readback | IMPLEMENTED IN SOURCE / NOT LIVE-VERIFIED | Production-scoped adapter and exact-reference readback are present; there are no approved bills or invoices yet |
 | Scanner, A4 physical print and actual stock effect | PENDING ACTUAL SETUP | No D-5015, Tally machine or physical printer was available |
 
 The 35-test suite covers strict server imports; idempotent draft/approval; 10 unique cartons and exact 680 Sandal / 220 Rose fixture totals; labels retaining identity; separate attachment/verification; held/obsolete/wrong-company/wrong-shipment codes; competing reservations; live station scope; 20 concurrent scan requests producing 1 acceptance and 19 duplicates; stable response recovery; new-session refresh; unload/reload; pricing/load permissions; exact-subset approval; billing revision invalidation; posting/departure blocks; connector scope/revocation; database unique allocation constraint; append-only audit trigger; session expiry; cross-company denial; persisted audit.
@@ -36,7 +40,7 @@ Additional departure/return tests deliberately set isolated SQL job fixtures to 
 
 ## Pending implementation and integration work
 
-- Validated Tally invoice template, marker discovery, preflight/stock policy, company GUID/version capabilities, posting attempt leases/stream, send/readback reconciliation and external edit/backup detection. The connector journal is only a tested guard helper, not that full pipeline.
+- Validate the import XML against a Sales voucher exported from this exact Tally company, then complete an accountant-approved create/readback cycle. Confirm version/GUID handling and recovery after external edits or backups.
 - Full ledger/item/unit/godown/batch import and mapping workflow; current master endpoint refreshes existing native-ID product links only. Rates from Tally remain unavailable. Batch/godown carton entry is blocked explicitly.
 - Real confirmed invoice output, local unattended print agent if required, return-credit/restock accounting and replacement identities after authorised returned-stock verification.
 - Autosave/resumable grid conflict UX beyond explicit versioned draft saves, whole-file duplicate import fingerprinting, large catalogue search/pagination/virtualisation, shipment reassignment editor, fully configured label sizes and selected failed-range reprint UI. No partial-row import is silently performed.
@@ -122,3 +126,7 @@ Two dashboards now share a company database, login, masters, Tally setup and sca
 Executed locally with fictional data: 59 frontend tests passed; TypeScript and Vite production builds passed; the API build passed with zero warnings/errors; the 36 existing PostgreSQL/API dispatch checks passed, including twenty competing scans accepting one carton once; the single-scan API suite passed; the 9 grouped-work API checks passed. The new dual-workflow API suite verifies both paths through approved loading and billing review, shared connector/mapping/master identities, cross-workflow and cross-order rejection, leftover stock, product/carton limits, order deletion guards and disabled real Tally posting.
 
 The browser preview uses an isolated PostgreSQL database and a local-only QA session proxy. The proxy and its credentials are ignored temporary development files and are excluded from deployment. Physical Tally/scanner/printer operation is not represented as tested.
+
+## Independent company activation - 31 October 2026
+
+Aromazon was redeployed with its own sensitive production DATABASE_URL and bootstrap settings after explicit user approval. Both live sites returned health 200, administrator login 200 and saved-session read 200. The opposite workflow returned 409, and cross-company session cookies returned 401. An Aromazon mapping notes probe persisted and was restored; Electro’s mapping remained identical. The Aromazon management account signed in successfully and was denied a write with 403. Aromazon remained empty of products, cartons, orders and trips. Real Tally posting and physical devices were not tested.

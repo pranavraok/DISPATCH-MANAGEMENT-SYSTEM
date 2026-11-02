@@ -1,6 +1,6 @@
 # Operator runbook
 
-All sample names, prices and documents are fictional. The first trial targets an isolated Tally TEST company only.
+Electro Group of Industries is the only production company enabled on this deployment. Some names, prices and documents are fictional demo records; replace or confirm them before accounting use.
 
 ## 1. Online application and secure MD access
 
@@ -82,6 +82,8 @@ An authorised Unload action removes that carton and all quantities operationally
 
 Approve the exact physical load. Billing staff enter available authorised rates, discounts, freight, charges and source/reason. Editing makes a new revision and removes current approval. Review and approve that revision. Create a durable posting job; the present implementation intentionally records Blocked because the accounting contract is not yet established.
 
+For Electro, the connector sends the full stock-item and customer-ledger lists to the app every two minutes. All stock items are included, including the demo ceiling fan and LED bulb, and customer ledgers in Sundry Debtors are synced. The app applies valid snapshots automatically; the screen refreshes every 15 seconds. Tally master IDs link edits back to the same Dispatch records. If direct HSN/GST rate fields are blank or zero, the connector also reads the HSN classification name. Operational dispatch addresses remain separate from the customer's Tally ledger address.
+
 Publish connector:
 
 ```powershell
@@ -90,11 +92,11 @@ Publish connector:
 ./artifacts/connector/Dispatch.Connector.exe
 ```
 
-Create pairing in Settings for the exact isolated TEST company. On the Tally PC, enter the cloud HTTPS URL, connector ID, exact test-company name, loopback endpoint and hidden pairing key. The key is protected with CurrentUser DPAPI. Run under the same Windows account. A scheduled user task is suitable for trial diagnostics. A Windows service under another account cannot decrypt that user's key without a deliberately designed account/deployment policy.
+Create pairing in Settings for the exact Tally company. On the Tally PC, enter the cloud HTTPS URL, connector ID, exact company name, loopback endpoint and hidden pairing key. The key is protected with CurrentUser DPAPI. Run under the same Windows account. The installed Electro task starts the connector automatically when that Windows user signs in. A Windows service under another account cannot decrypt that user's key without a deliberately designed account/deployment policy.
 
-Open Tally with the exact intended test company loaded. Enable XML/HTTP according to the installed version's real configuration. Loopback port is commonly 9000, but verify it. No public inbound Tally/database port or desktop sharing is needed. Heartbeat failure diagnoses stopped Tally, wrong company, unreachable endpoint, unsafe XML or cloud connectivity. Native version/capability and GUID verification require the actual installation.
+Open Tally with ELECTRO GROUP OF INDUSTRIES selected. Enable XML/HTTP according to the installed version's configuration. Loopback port is commonly 9000, but verify it. No public inbound Tally/database port or desktop sharing is needed. Heartbeat failure diagnoses stopped Tally, wrong company, unreachable endpoint, unsafe XML or cloud connectivity. Native version/capability and GUID verification require the actual installation.
 
-Ask the accountant to export representative correct invoices (sale, applicable GST, discount, freight) and return/credit vouchers from that test company. Validate master IDs/names, units, dates, numbering, stock effects and marker readback. Implement and fixture-test the contract adapter before enabling production Create. CREATED=1 or HTTP 200 alone is insufficient. A timeout after send means ConfirmationUnknown and review, not another Create.
+Ask the accountant to provide a representative Sales voucher exported from this exact company. The supplied `Sales_501.pdf` can guide the printed layout but cannot validate Tally's actual voucher XML or readback. Validate master IDs/names, units, dates, numbering, stock effects and reference readback before relying on automatic posting. CREATED=1 or HTTP 200 alone is insufficient. A timeout after send means ConfirmationUnknown and review, not another Create.
 
 ## 7. Driver documents, departure and returns
 

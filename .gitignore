@@ -13,3 +13,9 @@ connector-journal/
 .local/
 test-results/
 *.tsbuildinfo
+
+# Local tooling & scratch
+.codex/
+.tools/
+tmp/
+label-check-*.png

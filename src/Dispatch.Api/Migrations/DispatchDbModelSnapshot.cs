@@ -247,6 +247,13 @@ namespace Dispatch.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("MastersSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MastersSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Environment")
                         .IsRequired()
                         .HasColumnType("text");
@@ -279,6 +286,9 @@ namespace Dispatch.Api.Migrations
 
             modelBuilder.Entity("Dispatch.Customer", b =>
                 {
+                    b.Property<bool>("InTally")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
@@ -298,6 +308,12 @@ namespace Dispatch.Api.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("TallyId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TallyGroup")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TallyAddress")
                         .HasColumnType("text");
 
                     b.HasKey("Id");
@@ -680,12 +696,22 @@ namespace Dispatch.Api.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<bool>("InTally")
+                        .HasColumnType("boolean");
+
                     b.Property<decimal?>("BookBalance")
                         .HasPrecision(20, 6)
                         .HasColumnType("numeric(20,6)");
 
                     b.Property<string>("CompanyId")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal?>("GstRate")
+                        .HasPrecision(20, 6)
+                        .HasColumnType("numeric(20,6)");
+
+                    b.Property<string>("HsnCode")
                         .HasColumnType("text");
 
                     b.Property<string>("Name")
@@ -702,8 +728,15 @@ namespace Dispatch.Api.Migrations
                     b.Property<string>("TallyId")
                         .HasColumnType("text");
 
+                    b.Property<string>("TallyGroup")
+                        .HasColumnType("text");
+
                     b.Property<string>("TallyName")
                         .HasColumnType("text");
+
+                    b.Property<decimal?>("TallySellingPrice")
+                        .HasPrecision(20, 6)
+                        .HasColumnType("numeric(20,6)");
 
                     b.Property<string>("Unit")
                         .IsRequired()

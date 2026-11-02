@@ -1,4 +1,5 @@
 import type { Row, State } from "./domain";
+import { site } from "./site";
 
 export type Workflow = "StockFirst" | "OrderFirst";
 export const workflows = {
@@ -6,16 +7,17 @@ export const workflows = {
     title: "Pack before order",
     subtitle: "Manufactured stock. Order pending.",
     description: "Pack and label available stock now. Choose the customer when an order arrives.",
-    steps: ["Pack stock", "Print labels", "Receive order", "Choose cartons", "Scan & bill"],
+    steps: ["Pack stock", "Print labels", "Receive order", "Choose boxes", "Scan & bill"],
   },
   OrderFirst: {
     title: "Order first",
     subtitle: "Order received. Pack for the customer.",
-    description: "Record the customer order first. Pack, label and dispatch cartons for that order.",
-    steps: ["Receive order", "Pack for order", "Print labels", "Choose cartons", "Scan & bill"],
+    description: "Record the customer order first. Pack, label and dispatch boxes for that order.",
+    steps: ["Receive order", "Pack for order", "Print labels", "Choose boxes", "Scan & bill"],
   },
 } as const;
 export function readWorkflow(search = window.location.search): Workflow | null {
+  if (site) return site.workflow;
   const value = new URLSearchParams(search).get("workflow");
   return value === "StockFirst" || value === "OrderFirst" ? value : null;
 }

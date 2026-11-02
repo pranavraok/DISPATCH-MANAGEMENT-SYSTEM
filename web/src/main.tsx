@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Children, isValidElement, type ReactNode } from "react";
 import {
   LayoutDashboard,
   Package,
@@ -54,12 +54,14 @@ import { hasPendingScan } from "./scanner";
 import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
 import { WorkSelector, ShipmentOverview } from "./work-ui";
 import { brand, plainLabel } from "./brand";
-import { readWorkflow, workflows, sampleWorkflow, type Workflow } from "./workflow";
+import { site } from "./site";
+import { readWorkflow, workflows, sampleWorkflow, orderCartons, type Workflow } from "./workflow";
 import { WorkflowChooser, OrdersScreen } from "./workflow-ui";
 import { pendingScanWorkflow } from "./scanner";
 import "./style.css";
 import "./clean.css";
 import "./workflow-picker.css";
+import "./company-theme.css";
 export type Context = {
   workflow?: Workflow;
   s: State;
@@ -97,9 +99,16 @@ export function Field({
   label: string;
   children: ReactNode;
 }) {
+  function containsRequiredControl(node: ReactNode): boolean {
+    return Children.toArray(node).some((child) => {
+      if (!isValidElement<{ required?: boolean; children?: ReactNode }>(child)) return false;
+      return child.props.required === true || containsRequiredControl(child.props.children);
+    });
+  }
+  const required = containsRequiredControl(children);
   return (
     <label className="field">
-      <span>{label}</span>
+      <span>{label}{required && <span className="field-required" aria-hidden="true">*</span>}</span>
       {children}
     </label>
   );
@@ -146,8 +155,9 @@ const nav = [
   ["billing", "Billing", ReceiptText],
   ["returns", "Returns", RotateCcw],
   ["reports", "Reports", Activity],
-  ["setup", "Shared settings", Settings],
+  ["setup", "Settings", Settings],
 ] as const;
+const connectionWarning = "Connection lost. The numbers may be old. Wait for confirmation before loading a box.";
 function savedPage() {
   const page = window.location.hash.slice(1);
   return page === "loading" ? "cartons" : nav.some(([id]) => id === page) ? page : "overview";
@@ -170,6 +180,7 @@ export function App() {
     [lastSync, setLastSync] = useState<Date | null>(null);
   const selectionKey = workKey(work);
   const contextKey = (workflow ?? "StockFirst") + ":" + selectionKey;
+  const connectionFailures = useRef(0);
   const selectionRef = useRef(contextKey);
   selectionRef.current = contextKey;
   const view = useMemo(() => s ? projectWork(s, work) : null, [s, selectionKey]);
@@ -180,6 +191,8 @@ export function App() {
       if (selectionRef.current !== contextKey) return;
       setState(next);
       setLastSync(new Date());
+      connectionFailures.current = 0;
+      setError((previous) => previous === connectionWarning ? "" : previous);
     } catch (e) {
       if (e instanceof client.ApiError && e.status === 401) {
         setUser(null);
@@ -251,6 +264,7 @@ export function App() {
     return true;
   }
   function chooseWorkflow(next: Workflow) {
+    if (site && next !== site.workflow) return false;
     if (hasPendingScan() && next !== pendingScanWorkflow()) {
       setError("Resolve the pending scan in its original workflow before switching."); return false;
     }
@@ -262,6 +276,7 @@ export function App() {
     return true;
   }
   function changeWorkflow() {
+    if (site) return;
     if (hasPendingScan()) { setError("Resolve the pending scan before switching workflows."); return; }
     const url = new URL(window.location.href); url.searchParams.delete("workflow"); url.searchParams.delete("work"); url.searchParams.delete("labels"); url.searchParams.delete("order");
     window.history.replaceState(null, "", url.pathname + url.search + "#overview");
@@ -282,15 +297,15 @@ export function App() {
   }
   useEffect(() => {
     if (!user || sample || sessionStatus !== "ready") return;
-    const timer = setInterval(
-      () =>
-        refresh().catch(() =>
-          setError(
-            "Connection lost. The numbers may be old. Wait for confirmation before loading a carton.",
-          ),
-        ),
-      15000,
-    );
+    const timer = setInterval(() => {
+      refresh().catch(() => {
+        connectionFailures.current += 1;
+        // Ignore brief Wi-Fi/API blips. Show the warning only after three
+        // consecutive failed polls (45 seconds), and only once until recovery.
+        if (connectionFailures.current >= 3)
+          setError((previous) => previous || connectionWarning);
+      });
+    }, 15000);
     return () => clearInterval(timer);
   }, [user, sample, refresh, sessionStatus]);
   async function run(type: string, data: Row) {
@@ -325,12 +340,12 @@ export function App() {
     const u = await client.login(email, password);
     setUser(u);
     setSample(false);
-    setWorkflow(null); setWork({ kind: "all" });
+    setWorkflow(site?.workflow ?? null); setWork({ kind: "all" });
     const url = new URL(window.location.href); url.searchParams.delete("workflow"); url.searchParams.delete("work"); url.searchParams.delete("order"); url.searchParams.delete("labels");
     window.history.replaceState(null, "", url.pathname + url.search + "#overview"); setPage("overview");
     setSessionStatus("checking");
     try {
-      const next = await client.state();
+      const next = await client.state(undefined, { kind: "all" }, site?.workflow);
       setState(next);
       setLastSync(new Date());
       setSessionStatus("ready");
@@ -360,8 +375,8 @@ export function App() {
       roles: ["MD"],
       email: "Read-only workspace",
     });
-    setState(sampleState());
-    setWorkflow(null);
+    setState(site ? { ...sampleWorkflow(sampleState(), site.workflow), company: { ...sampleState().company, name: site.companyName, id: site.companyId } } : sampleState());
+    setWorkflow(site?.workflow ?? null);
     setSessionStatus("ready");
   }
   if (sessionStatus === "signedOut") return <Login onLogin={onLogin} preview={preview} />;
@@ -370,6 +385,7 @@ export function App() {
   }
   if (!workflow) return <WorkflowChooser choose={chooseWorkflow} user={user} error={error} signOut={() => void logout()} openSettings={() => { if (chooseWorkflow("StockFirst")) navigate("setup"); }} />;
   const ctx: Context = { s: view!, all: s, work, selectWork, user, sample, run, refresh, navigate, workflow };
+  const simpleElectro = site?.slug === "electro" && workflow === "OrderFirst" && !sample;
   const current = nav.find((x) => x[0] === page)!;
   const screens: Record<string, ReactNode> = {
     overview: <Overview {...ctx} />,
@@ -388,14 +404,19 @@ export function App() {
       <aside className={mobile ? "sidebar open" : "sidebar"}>
         <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
           <div className="brand-mark">
-            E
+            {brand.initial}
           </div>
           <div>
-            {brand.shortName}<small>GROUP OF INDUSTRIES</small>
+            {brand.shortName}<small>{brand.tagline}</small>
           </div>
         </a>
-        <div className="sidebar-workflow"><span>WORKFLOW</span><strong>{workflows[workflow].title}</strong><button className="text-link" onClick={changeWorkflow}>Switch workflow <ArrowRight size={14} /></button></div>
+        {simpleElectro ? <div className="sidebar-workflow"><strong>Orders in progress</strong></div> : <div className="sidebar-workflow"><span>WORKFLOW</span><strong>{workflows[workflow].title}</strong>{!site && <button className="text-link" onClick={changeWorkflow}>Switch workflow <ArrowRight size={14} /></button>}</div>}
         <nav aria-label="Main navigation">
+          {simpleElectro ? <>
+            <div className="nav-group"><div className="nav-label">WORK</div><button className={page === "overview" ? "active" : ""} aria-current={page === "overview" ? "page" : undefined} onClick={() => { navigate("overview"); setMobile(false); }}><LayoutDashboard size={18} /><span>Dispatch</span>{page === "overview" && <ChevronRight size={15} />}</button><button className={page === "orders" ? "active" : ""} aria-current={page === "orders" ? "page" : undefined} onClick={() => { navigate("orders"); setMobile(false); }}><ClipboardList size={18} /><span>Past orders</span>{page === "orders" && <ChevronRight size={15} />}</button></div>
+            <div className="nav-group"><div className="nav-label">COMPANY</div><button className={page === "setup" ? "active" : ""} aria-current={page === "setup" ? "page" : undefined} onClick={() => navigate("setup")}><Settings size={18} /><span>Settings</span>{page === "setup" && <ChevronRight size={15} />}</button></div>
+            <details className="nav-more"><summary>More</summary><div className="nav-group">{nav.filter(([id]) => ["returns", "reports"].includes(id)).map(([id, label, Icon]) => <button key={id} className={page === id ? "active" : ""} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span>{page === id && <ChevronRight size={15} />}</button>)}</div></details>
+          </> : <>
           {[
             ["Prepare", ["overview", "orders", "packing"]],
             ["Dispatch", ["trips", "cartons", "billing"]],
@@ -412,10 +433,11 @@ export function App() {
               }}
             >
               <Icon size={18} />
-              <span>{label}</span>
+              <span>{id === "setup" && !site ? "Shared settings" : label}</span>
               {page === id && <ChevronRight size={15} />}
             </button>
           ))}</div>)}
+          </>}
         </nav>
         <div className="sidebar-bottom">
           <div className="signed-in-user">{user.name}</div>
@@ -442,7 +464,7 @@ export function App() {
             </button>
             <span className="breadcrumb">
               Dispatch <ChevronRight size={13} />
-              <strong>{current[1]}</strong>
+              <strong>{simpleElectro && page === "overview" ? "Dispatch" : current[1]}</strong>
             </span>
           </div>
           <div className="top-actions">
@@ -487,10 +509,11 @@ export function App() {
               </button>
             </div>
           )}
-          {(sample || s.workflow === workflow) && <WorkSelector ctx={ctx} companyWide={page === "setup" || page === "orders"} />}
+          {!simpleElectro && (sample || s.workflow === workflow) && <WorkSelector ctx={ctx} companyWide={page === "setup" || page === "orders"} />}
+          {simpleElectro && page !== "overview" && <div className="dispatch-guide-return"><span>Dispatch steps</span><button className="text-link" onClick={() => navigate("overview")}>Back to next step <ArrowRight size={15} /></button></div>}
           {s.workMissing && <div className="notice amber">This work was not found. Choose another packing list, trip, or shipment, or select Show all work.</div>}
           {!sample && (s.workLoadedKey !== selectionKey || s.workflow !== workflow) ? <section className="panel panel-padding" role="status"><h2>{workError || "Opening your workflow…"}</h2>{workError && <button className="secondary" onClick={() => setWorkRetry((n) => n + 1)}>Try again</button>}</section> : <>
-            {s.workComplete === false && work.kind !== "all" && <div className="notice amber">Showing up to 5,000 carton details out of {number(s.workCartonTotal ?? 0)}. Choose a smaller shipment for a complete view.</div>}
+            {s.workComplete === false && work.kind !== "all" && <div className="notice amber">Showing up to 5,000 box details out of {number(s.workCartonTotal ?? 0)}. Choose a smaller shipment for a complete view.</div>}
             {screens[page]}
           </>}
         </div>
@@ -500,7 +523,7 @@ export function App() {
             {sample
               ? "Sample data"
               : `Saved state · ${lastSync ? date(lastSync) : date(s.serverTime)}`}{" "}
-            <span className="footer-version">v0.1 · Trial</span>
+            <span className="footer-version">Electro Production</span>
           </span>
         </footer>
       </main>
@@ -556,10 +579,10 @@ function Login({
       <section className="login-story">
         <a className="brand">
           <div className="brand-mark">
-            E
+            {brand.initial}
           </div>
           <div>
-            {brand.shortName}<small>GROUP OF INDUSTRIES</small>
+            {brand.shortName}<small>{brand.tagline}</small>
           </div>
         </a>
         <div>
@@ -570,7 +593,7 @@ function Login({
             simple.
           </h1>
           <p>
-            Pack before an order arrives, or prepare cartons for an existing order. One shared setup for both.
+            {site ? workflows[site.workflow].description : "Pack before an order arrives, or prepare boxes for an existing order. One shared setup for both."}
           </p>
           <div className="login-flow">
             <span>
@@ -595,7 +618,7 @@ function Login({
         <div className="eyebrow">DISPATCH</div>
         <h2>Sign in</h2>
         {connectionNote && <div className="notice amber">{connectionNote}</div>}
-        <p>Sign in once, then choose your dispatch workflow.</p>
+        <p>{site ? brand.name + " · " + workflows[site.workflow].title : "Sign in once, then choose your dispatch workflow."}</p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -651,28 +674,118 @@ function Login({
 function Overview(ctx: Context) {
   const { s, navigate } = ctx;
   const workflow = ctx.workflow ?? "StockFirst", info = workflows[workflow], orderFirst = workflow === "OrderFirst";
+  if (site?.slug === "electro" && orderFirst && !ctx.sample) return <ElectroDispatchGuide {...ctx} />;
   const count = (state: string) => s.counts.find((x) => x.state === state)?.count ?? 0;
   return (
     <>
       <div className="page-heading">
         <div><span className="eyebrow">{orderFirst ? "ORDER RECEIVED" : "MANUFACTURED STOCK"}</span><h1>{info.title}</h1><p>{info.description}</p></div>
-        <button className="primary" onClick={() => navigate(orderFirst ? "orders" : "packing")}><Plus size={17} />{orderFirst ? "Open customer orders" : "Add packed cartons"}</button>
+        <button className="primary" onClick={() => navigate(orderFirst ? "orders" : "packing")}><Plus size={17} />{orderFirst ? "Open customer orders" : "Add packed boxes"}</button>
       </div>
       <div className="home-totals" aria-label="Work summary">
         <div><strong>{number(s.manifests.filter((m) => m.state === "Draft").length)}</strong><span>Lists to approve</span></div>
-        <div><strong>{number(count("Available"))}</strong><span>Available cartons</span></div>
-        <div><strong>{number(count("Loaded"))}</strong><span>Loaded cartons</span></div><div><strong>{number((s.orders ?? []).length)}</strong><span>Customer orders</span></div>
+        <div><strong>{number(count("Available"))}</strong><span>Available boxes</span></div>
+        <div><strong>{number(count("Loaded"))}</strong><span>Loaded boxes</span></div><div><strong>{number((s.orders ?? []).length)}</strong><span>Customer orders</span></div>
       </div>
       <nav className="task-flow" aria-label="Dispatch steps">
-          {(orderFirst ? [["Receive order", "orders"], ["Pack & label", "packing"], ["Trips", "trips"], ["Scan in Labels", "loading"], ["Billing", "billing"]] : [["Pack stock", "packing"], ["Print labels", "printLabels"], ["Receive order", "orders"], ["Choose cartons", "trips"], ["Scan & bill", "loading"]]).map(([title, target], i) => <button key={target} onClick={() => navigate(target)}><span>{i + 1}</span>{title}<ChevronRight size={14} /></button>)}
+          {(orderFirst ? [["Receive order", "orders"], ["Pack & label", "packing"], ["Trips", "trips"], ["Scan in Labels", "loading"], ["Billing", "billing"]] : [["Pack stock", "packing"], ["Print labels", "printLabels"], ["Receive order", "orders"], ["Choose boxes", "trips"], ["Scan & bill", "loading"]]).map(([title, target], i) => <button key={target} onClick={() => navigate(target)}><span>{i + 1}</span>{title}<ChevronRight size={14} /></button>)}
       </nav>
       <ShipmentOverview ctx={ctx} />
       <details className="panel supporting-panel">
         <summary>Recent packing lists <span>{s.manifests.length}</span></summary>
-        {s.manifests.length ? <div className="table-wrap"><table><thead><tr><th>PACKING LIST</th><th>CARTONS</th><th>STATUS</th><th /></tr></thead><tbody>{s.manifests.slice(0, 4).map((m) => <tr key={m.id}><td><strong>{m.name}</strong></td><td>{parse<Group[]>(m.groups).reduce((n, g) => n + g.count, 0)}</td><td><Badge tone={m.state === "Approved" ? "sage" : "amber"}>{m.state === "Draft" ? "Needs approval" : m.state}</Badge></td><td><button className="text-link" onClick={() => navigate("packing")} aria-label={"Open " + m.name}>Open <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div> : <Empty title="No packing lists yet" detail="Add the packed cartons to get started." />}
+        {s.manifests.length ? <div className="table-wrap"><table><thead><tr><th>PACKING LIST</th><th>BOXES</th><th>STATUS</th><th /></tr></thead><tbody>{s.manifests.slice(0, 4).map((m) => <tr key={m.id}><td><strong>{m.name}</strong></td><td>{parse<Group[]>(m.groups).reduce((n, g) => n + g.count, 0)}</td><td><Badge tone={m.state === "Approved" ? "sage" : "amber"}>{m.state === "Draft" ? "Needs approval" : m.state}</Badge></td><td><button className="text-link" onClick={() => navigate("packing")} aria-label={"Open " + m.name}>Open <ArrowRight size={14} /></button></td></tr>)}</tbody></table></div> : <Empty title="No packing lists yet" detail="Add the packed boxes to get started." />}
       </details>
     </>
   );
+}
+function ElectroDispatchGuide(ctx: Context) {
+  const params = new URLSearchParams(window.location.search);
+  const [orderId, setOrderId] = useState(params.get("order") ?? "");
+  const orders = ctx.all.orders ?? [];
+  const order = orders.find((item) => item.id === orderId && item.state !== "Cancelled");
+  const openOrders = orders.filter((item) => item.state === "Open");
+  const manifests = order ? ctx.all.manifests.filter((item) => item.orderId === order.id) : [];
+  const manifest = manifests.find((item) => item.state === "Draft") ?? manifests.find((item) => item.state === "Approved");
+  const manifestIds = new Set(manifests.map((item) => item.id));
+  const orderCartonRows = order ? ctx.all.cartons.filter((carton) => manifestIds.has(carton.manifestId) && carton.state !== "Retired") : [];
+  const cartonsReady = orderCartonRows.length > 0 && orderCartonRows.every((carton) => carton.verified);
+  const shipments = order ? ctx.all.shipments.filter((item) => item.orderId === order.id && item.state !== "Cancelled") : [];
+  const pendingShipment = shipments.find((item) => !item.loadApproved);
+  const latestShipment = [...shipments].reverse()[0];
+  const confirmedInvoiceShipmentIds = new Set(ctx.all.jobs.filter((job) => job.state === "Confirmed").map((job) => job.shipmentId));
+  const orderBillingComplete = shipments.length > 0 && shipments.every((shipment) => confirmedInvoiceShipmentIds.has(shipment.id));
+  const assigned = order ? orderCartons(ctx.all, order) : 0;
+  const remaining = order ? Math.max(0, Number(order.expectedCartons) - assigned) : 0;
+
+  function rememberOrder(id: string) {
+    setOrderId(id);
+    const next = new URL(window.location.href);
+    if (id) next.searchParams.set("order", id); else next.searchParams.delete("order");
+    window.history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }
+  function openPacking() {
+    if (!order) return;
+    rememberOrder(order.id);
+    if (manifest && !ctx.selectWork({ kind: "packing", id: manifest.id })) return;
+    ctx.navigate("packing");
+  }
+  function openLabels() {
+    if (!order || !manifest) return;
+    if (!ctx.selectWork({ kind: "packing", id: manifest.id })) return;
+    const next = new URL(window.location.href); next.searchParams.set("labels", "print"); next.searchParams.set("order", order.id);
+    window.history.replaceState(null, "", next.pathname + next.search + "#cartons");
+    ctx.navigate("cartons");
+  }
+  function openScan(shipment: Row) {
+    if (!ctx.selectWork({ kind: "shipment", id: shipment.id })) return;
+    ctx.navigate("loading");
+  }
+  function openBilling(shipment: Row) {
+    if (!ctx.selectWork({ kind: "shipment", id: shipment.id })) return;
+    ctx.navigate("billing");
+  }
+  function startAnotherOrder() {
+    const next = new URL(window.location.href);
+    next.searchParams.set("newOrder", "1");
+    window.history.replaceState(null, "", next.pathname + next.search + next.hash);
+    ctx.navigate("orders");
+  }
+
+  let step = 1, title = "Choose an order", detail = "Pick the customer order you are preparing.";
+  let button = "Choose an order", action = () => ctx.navigate("orders");
+  if (order) {
+    if (!manifests.length) {
+      step = 1; title = "Add box contents"; detail = "Set the number of boxes, products and quantities per box. Mixed products can go in the same box."; button = "Continue: box contents"; action = openPacking;
+    } else if (manifests.some((item) => item.state === "Draft")) {
+      const draft = manifests.find((item) => item.state === "Draft")!;
+      step = 2; title = "Prepare labels for this saved order"; detail = "This older order already has a saved box plan. Prepare its labels to continue."; button = "Continue: labels";
+      action = () => { void (async () => { await ctx.run("approveManifest", { id: draft.id, physicalConfirmed: true }); if (!ctx.selectWork({ kind: "packing", id: draft.id })) return; ctx.navigate("printLabels"); })(); };
+    } else if (!cartonsReady) {
+      step = 2; title = "Prepare box labels"; detail = "Print the labels, attach each label to its matching box, then confirm the check."; button = "Continue: labels"; action = openLabels;
+    } else if (pendingShipment) {
+      step = 3; title = "Scan boxes as they load"; detail = "The shipment is prepared automatically. Scan each box once and wait for its saved confirmation."; button = "Continue: scan boxes"; action = () => openScan(pendingShipment);
+    } else if (remaining > 0) {
+      step = 3; title = "Prepare boxes for scanning"; detail = "The order is checked and labeled. Prepare its remaining boxes for loading."; button = "Continue: scan boxes"; action = () => { void (async () => { await ctx.run("prepareOrderShipment", { id: order.id }); await ctx.refresh(); })(); };
+    } else if (latestShipment && orderBillingComplete) {
+      step = 4; title = "Order complete"; detail = "All shipment invoices are confirmed in Tally. You can review or print them from Billing."; button = "View invoices"; action = () => openBilling(latestShipment);
+    } else if (latestShipment) {
+      const shipmentToBill = [...shipments].reverse().find((shipment) => !confirmedInvoiceShipmentIds.has(shipment.id)) ?? latestShipment;
+      step = 4; title = "Finish the bill"; detail = "Review this shipment’s bill and create its sales invoice in Tally."; button = "Continue: billing"; action = () => openBilling(shipmentToBill);
+    }
+  }
+  const stepNames = ["Order & boxes", "Labels", "Scan", "Bill"];
+  return <section className="dispatch-guide">
+    <div className="dispatch-guide-heading"><span className="eyebrow">ELECTRO GROUP OF INDUSTRIES</span><h1>Dispatch an order</h1><p>Choose the customer and set the box contents together. We’ll carry the details through loading and billing.</p></div>
+    <div className="dispatch-guide-steps" aria-label={orderBillingComplete ? "All 4 steps complete" : `Step ${step} of 4`}>
+      {stepNames.map((name, i) => <span key={name} className={orderBillingComplete || i + 1 < step ? "complete" : i + 1 === step ? "current" : ""}><b>{i + 1}</b>{name}</span>)}
+    </div>
+    {!orders.length ? <section className="dispatch-guide-card"><h2>Start with a customer order</h2><p>Add the order once; the customer, delivery details and requested items will carry forward.</p><button className="primary" onClick={startAnotherOrder}><Plus size={17} />New customer order</button></section> : <section className="dispatch-guide-card">
+      <div className="dispatch-order-toolbar"><label className="dispatch-order-choice"><span>Customer order</span><select value={orderId} onChange={(e) => rememberOrder(e.target.value)}><option value="">Choose an order</option>{openOrders.map((item) => <option value={item.id} key={item.id}>{item.reference} · {ctx.all.customers.find((customer) => customer.id === item.customerId)?.name ?? "Customer"}</option>)}</select></label><button className="secondary" onClick={startAnotherOrder}><Plus size={17} />Start another order</button></div>
+      {order ? <div className="dispatch-order-summary"><strong>{ctx.all.customers.find((customer) => customer.id === order.customerId)?.name}</strong><span>{order.reference}</span><span>{order.destination}</span><span>{order.expectedCartons} boxes</span></div> : <p>Choose the order you want to prepare.</p>}
+      <div className="dispatch-guide-next"><div><span>STEP {step} OF 4</span><h2>{title}</h2><p>{detail}</p></div><button className="primary" disabled={!order || (manifests.some((item) => item.state === "Draft") && !ctx.user.roles.some((role: string) => ["Admin", "PackingSupervisor"].includes(role)))} onClick={action}>{button}<ArrowRight size={17} /></button></div>
+      {!openOrders.length && <p>There are no open orders. Start a new order above or review the order history in Orders.</p>}
+    </section>}
+  </section>;
 }
 function Metric({
   title,

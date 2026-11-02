@@ -4,15 +4,62 @@ using Microsoft.EntityFrameworkCore;
 namespace Dispatch;
 
 public abstract class Scoped { public string Id { get; set; } = Guid.NewGuid().ToString("N"); public string CompanyId { get; set; } = "demo"; }
-public class Company { public string Id { get; set; } = "demo"; public string Name { get; set; } = "Electro Group of Industries"; public string Environment { get; set; } = "Test"; }
+public class Company { public string Id { get; set; } = "demo"; public string Name { get; set; } = "Electro Group of Industries"; public string Environment { get; set; } = "Production"; }
 public class Warehouse : Scoped { public string Name { get; set; } = "Main warehouse"; public string? TallyGodown { get; set; } }
 public class User : Scoped { public string Email { get; set; } = ""; public string Name { get; set; } = ""; public string PasswordHash { get; set; } = ""; public string[] Roles { get; set; } = []; public bool Active { get; set; } = true; }
 public class Session : Scoped { public string UserId { get; set; } = ""; public string TokenHash { get; set; } = ""; public string Csrf { get; set; } = ""; public DateTimeOffset Expires { get; set; } }
-public class Product : Scoped { public string Sku { get; set; } = ""; public string Name { get; set; } = ""; public string Unit { get; set; } = "packets"; public string? TallyId { get; set; } public string? TallyName { get; set; } public decimal? BookBalance { get; set; } public DateTimeOffset? SyncedAt { get; set; } }
-public class Customer : Scoped { public string Name { get; set; } = ""; public string Address { get; set; } = ""; public string? TallyId { get; set; } public string? GstIn { get; set; } }
+public class Product : Scoped { public string Sku { get; set; } = ""; public string Name { get; set; } = ""; public string Unit { get; set; } = "packets"; public string? TallyId { get; set; } public string? TallyName { get; set; } public string? TallyGroup { get; set; } public string? HsnCode { get; set; } public decimal? GstRate { get; set; } public decimal? TallySellingPrice { get; set; } public decimal? BookBalance { get; set; } public DateTimeOffset? SyncedAt { get; set; } public bool InTally { get; set; } = true; }
+public class Customer : Scoped { public string Name { get; set; } = ""; public string Address { get; set; } = ""; public string? TallyAddress { get; set; } public string? TallyId { get; set; } public string? TallyGroup { get; set; } public string? GstIn { get; set; } public bool InTally { get; set; } = true; }
 public class UnitConversion : Scoped { public string ProductId { get; set; } = ""; public string FromUnit { get; set; } = ""; public string BaseUnit { get; set; } = ""; public decimal Factor { get; set; } }
 public record ContentLine(string Sku, decimal Quantity, string Unit, string? Batch = null, string? Godown = null, decimal? BaseQuantity = null, string? BaseUnit = null);
 public record PackedGroup(string Marking, int Count, ContentLine[] Lines);
+public record TallyStockItem(string NativeId, string Name, string Unit, decimal Balance, string? HsnCode, decimal? GstRate, string? Group, decimal? StandardSellingPrice = null, string? ClassificationName = null);
+public record TallyLedger(string NativeId, string Name, string? Group, string? Address, string? GstIn, string? StateName = null);
+public record TallyMasterSnapshot(string Company, string Environment, TallyStockItem[] Items, TallyLedger[] Ledgers, string? CompanyState = null);
+public sealed record TallyTaxLedgers(string Cgst, string Sgst, string Igst, bool Demo);
+public static class TallyTaxLedgerResolver
+{
+    public static TallyTaxLedgers? Resolve(TallyMasterSnapshot? snapshot, bool demo)
+    {
+        // Older or not-yet-synced connector records can contain an empty JSON
+        // object. Treat an incomplete master snapshot as unavailable instead
+        // of letting one connector take down the entire company workspace.
+        if (snapshot?.Ledgers is not { } ledgers) return null;
+        string? Find(string head)
+        {
+            var candidates = ledgers.Where(x => x is not null && string.Equals(x.Group, "Duties & Taxes", StringComparison.OrdinalIgnoreCase)
+                && x.Name.Contains(head, StringComparison.OrdinalIgnoreCase)
+                && (demo ? x.Name.Contains("DEMO", StringComparison.OrdinalIgnoreCase)
+                         : !x.Name.Contains("DEMO", StringComparison.OrdinalIgnoreCase)
+                           && !x.Name.Contains("TEST", StringComparison.OrdinalIgnoreCase)
+                           && !x.Name.Contains("ARCHIVE", StringComparison.OrdinalIgnoreCase)
+                           && !x.Name.Contains("LEGACY", StringComparison.OrdinalIgnoreCase)
+                           && !x.Name.Contains("INPUT", StringComparison.OrdinalIgnoreCase)
+                           && !x.Name.Contains("PURCHASE", StringComparison.OrdinalIgnoreCase)
+                           && !x.Name.Contains("ITC", StringComparison.OrdinalIgnoreCase)))
+                .Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            // When Tally has both an explicitly named output ledger (for example,
+            // "Output CGST") and a generic ledger ("CGST"), use the explicit
+            // output ledger for customer invoices. Keep refusing the mapping if
+            // more than one explicit output ledger exists for the same tax head.
+            var outputLedgers = candidates.Where(x => x.StartsWith("Output ", StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (outputLedgers.Length > 0) return outputLedgers.Length == 1 ? outputLedgers[0] : null;
+            return candidates.Length == 1 ? candidates[0] : null;
+        }
+        var cgst = Find("CGST"); var sgst = Find("SGST"); var igst = Find("IGST");
+        return cgst == null || sgst == null || igst == null ? null : new TallyTaxLedgers(cgst, sgst, igst, demo);
+    }
+}
+public record TallyInvoiceLine(string Sku, string NativeId, string StockItemName, string Unit, decimal Quantity, decimal Rate, decimal DiscountPercent,
+    decimal Amount, decimal GstRate, string HsnCode, decimal? BookBalance = null);
+public record TallyInvoicePayload(string JobId, string Company, string Environment, string VoucherType, string Date,
+    string PartyLedgerName, string PartyState, string CompanyState, string SalesLedger, string CgstLedger, string SgstLedger,
+    string IgstLedger, string ChargeLedger, string GodownName, string Reference, string Narration, string Terms, decimal Freight, decimal OtherCharges, TallyInvoiceLine[] Lines,
+    decimal Taxable, decimal Cgst, decimal Sgst, decimal Igst, decimal Total);
+public record TallyInvoiceReadback(string Company, string VoucherType, string VoucherNumber, string Date, string Reference,
+    string PartyLedgerName, TallyInvoiceLine[] Lines, decimal Taxable, decimal Cgst, decimal Sgst, decimal Igst, decimal Total);
+public record TallyInvoiceJobDetail(string Message, TallyInvoicePayload? Payload = null, TallyInvoiceReadback? Result = null, bool RetryAuthorized = false);
+public record ConnectorDiagnostics(bool TallyReachable, string? Version = null, string? Detail = null);
 public class DispatchOrder : Scoped
 {
     public string Workflow { get; set; } = Workflows.StockFirst;
@@ -34,7 +81,7 @@ public class Allocation : Scoped { public string ShipmentId { get; set; } = ""; 
 public class LoadingSession : Scoped { public string ShipmentId { get; set; } = ""; public string TripId { get; set; } = ""; public string UserId { get; set; } = ""; public string Station { get; set; } = ""; public bool Active { get; set; } = true; public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow; public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.UtcNow.AddHours(8); }
 public class Billing : Scoped { public string ShipmentId { get; set; } = ""; public int Revision { get; set; } public string Snapshot { get; set; } = "{}"; public decimal Total { get; set; } public bool Approved { get; set; } public string? ApprovedBy { get; set; } public DateTimeOffset? ApprovedAt { get; set; } }
 public class PostingJob : Scoped { public string ShipmentId { get; set; } = ""; public string BillingId { get; set; } = ""; public string PayloadHash { get; set; } = ""; public string State { get; set; } = "Blocked"; public string Detail { get; set; } = "The accountant must check the Tally setup and invoice results before sending."; public string? ConnectorId { get; set; } public DateTimeOffset? LeaseExpires { get; set; } public string? VoucherReference { get; set; } public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow; }
-public class Connector : Scoped { public string Name { get; set; } = ""; public string SecretHash { get; set; } = ""; public bool Revoked { get; set; } public string ExpectedCompany { get; set; } = ""; public string Environment { get; set; } = "Test"; public DateTimeOffset? LastSeen { get; set; } public string Diagnostics { get; set; } = "{}"; }
+public class Connector : Scoped { public string Name { get; set; } = ""; public string SecretHash { get; set; } = ""; public bool Revoked { get; set; } public string ExpectedCompany { get; set; } = ""; public string Environment { get; set; } = "Production"; public DateTimeOffset? LastSeen { get; set; } public string Diagnostics { get; set; } = "{}"; public string MastersSnapshot { get; set; } = "{}"; public DateTimeOffset? MastersSyncedAt { get; set; } }
 public class Mapping : Scoped { public string ExpectedCompany { get; set; } = ""; public string TallyVersion { get; set; } = "Unknown"; public string SalesLedger { get; set; } = ""; public string VoucherType { get; set; } = "Sales"; public string Pattern { get; set; } = "Unvalidated"; public string Notes { get; set; } = ""; public bool ContractValidated { get; set; } = false; public bool StatutoryRequired { get; set; } = true; public DateTimeOffset? SyncedAt { get; set; } }
 public class LabelJob : Scoped { public string Workflow { get; set; } = Workflows.StockFirst; public string CartonSnapshots { get; set; } = "[]"; public string State { get; set; } = "Prepared"; public string Reason { get; set; } = "Initial labels"; public string OperatorId { get; set; } = ""; public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow; }
 public class ReturnRecord : Scoped { public string ShipmentId { get; set; } = ""; public string CartonId { get; set; } = ""; public string Lines { get; set; } = "[]"; public string Reason { get; set; } = ""; public string Condition { get; set; } = "Uninspected"; public string State { get; set; } = "Quarantine"; public string? ReplacementId { get; set; } public string AccountingStatus { get; set; } = "Credit/stock movement pending accountant review"; }

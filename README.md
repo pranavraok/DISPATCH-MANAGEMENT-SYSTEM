@@ -1,10 +1,10 @@
-# Electro Group of Industries — Dispatch
+# Electro Group Dispatch
 
-Dispatch application for Electro Group of Industries (Electrotech Services): record packed cartons, print and check labels, load vehicles, and review billing.
+This production dispatch application is currently scoped to **Electro Group of Industries**. Aromazen is out of scope for this release. It records packed cartons, checks labels and loading, prepares billing, and sends approved sales invoices to the connected Tally company.
 
-This is a runnable React/TypeScript + ASP.NET Core 10 + PostgreSQL application, not only a visual prototype. The complete implementation specification is retained in [docs/MASTER_SPECIFICATION.txt](docs/MASTER_SPECIFICATION.txt). Delivery is staged. Actual Tally invoice creation/readback and production readiness are **not** claimed.
+The application uses React/TypeScript, ASP.NET Core 10, and PostgreSQL. The complete implementation specification is retained in [docs/MASTER_SPECIFICATION.txt](docs/MASTER_SPECIFICATION.txt). Tally customer and stock masters sync from the connected company. A real sales voucher and stock readback, TallyPrime EDU licensing suitability, and permanent database retention remain outstanding before routine daily invoicing can be treated as fully accepted.
 
-Live trial: https://electro-group-dispatch.vercel.app/
+Production site: https://electro-group-dispatch.vercel.app/
 
 The company correction and simple-English interface supersede the previous branding in the original master prompt. Sample item names and SKU quantities are fictional fixtures, not the company catalogue.
 
@@ -22,8 +22,7 @@ For native Windows development, run the API on 5080 with a PostgreSQL connection
 
 ## Implemented stages
 
-- Two workflow dashboards after the same sign-in: **Pack before order** (general stock, labels first, customer order later) and **Order first** (received order required before packing). Orders, packing, trips, loading and billing retain their workflow in PostgreSQL. Existing records migrate to Pack before order without changing carton identities.
-- A single shared setup for products, customers, Tally mapping/connector and label/document printing. The scanner workstation name is saved once per company on each browser/computer and reused in both workflows. See [Testing the two workflows](docs/WORKFLOWS.md).
+- Independent company deployments from one source tree: **Order first** for Electro Group of Industries, **Pack before order** for AROMAZEN PVT LTD. Each uses a separate PostgreSQL project, credentials, users, masters and Tally pairing. Deployment-owned configuration locks the workflow on the server and client. See [Company sites](docs/WORKFLOWS.md).
 
 - Shared work selection and grouped packing lists, vehicle trips and customer shipments across all operational sections. Same-customer shipments stay separate; the selection survives sidebar navigation and refresh. Settings remain company-wide.
 - Work groups use readable cards, three across on desktop and one on phones. Compact display references retain the complete identity. New carton QRs use a shorter reversible code with the label revision; existing printed K1 labels remain accepted.
@@ -33,7 +32,8 @@ For native Windows development, run the API on 5080 with a PostgreSQL connection
 - Genuine QR A4 PDF jobs, revision-aware IDs, reasoned reprints, supervisor confirmation of labels and contents without scanning, holds and API content correction/repack. Cartons are scanned once during loading under Labels > Scan for dispatch.
 - Partial reservations, multi-customer vehicle trips, station-bound loading, atomic mixed-carton acceptance, duplicate/race protection, uncertain-response recovery and audited unloading.
 - Decimal billing revisions with authorised manual rates, discounts/charges and reasons. Unresolved tax/stock/voucher mapping blocks Tally posting.
-- Separate Windows connector with CurrentUser DPAPI pairing, exact test-company XML diagnostics, safe parsing, reconnect and journal guard fixtures. Production posting adapter remains unimplemented.
+- Separate Windows connector with CurrentUser DPAPI pairing, exact-company XML diagnostics, safe parsing, reconnect, durable invoice-attempt journal, production invoice import and exact-reference readback. A real Tally voucher create/readback remains unverified on the connected company.
+- Electro-only automatic Tally master sync for every stock item, including items marked `DEMO -`, and all customer ledgers under Sundry Debtors. The connector refreshes Tally names, units, balances, HSN/GST details, and customer GST/address data every two minutes while it is running.
 - Packing-list PDFs, document/departure gates and quarantined full/partial return records. Real confirmed-invoice output, credit/restock posting and full return redispatch remain pending integration work.
 
 ## Verification
@@ -59,7 +59,7 @@ Integration suites create clearly fictional test records and require a running s
 
 Dockerfile serves the SPA and .NET API from one origin on port 8080. Dockerfile.vercel uses the Vercel container runtime on port 80. Persist all data in a private TLS PostgreSQL database; the container holds no operational filesystem state. Keep bootstrap credentials and DATABASE_URL exclusively in private runtime environment variables. Never place them in VITE_* variables or tracked files.
 
-The Vercel app and PostgreSQL connection are active for the trial. Administrator/MD logins and draft persistence across fresh sessions were verified over HTTPS. The optional sample remains read-only and fictional. Tally posting remains blocked, and the temporary database must be claimed before expiry; this is not production-readiness acceptance.
+The Vercel production app and PostgreSQL connection are active. The database backing this deployment is temporary and must be claimed or migrated before its provider's expiry deadline. Administrator/MD logins and saved state were verified over HTTPS. Demo records remain fictional. The Tally connector is production-scoped; a real voucher create/readback is still pending.
 
 Vercel Git integration needs the account's GitHub Login Connection; direct API deployment is supported independently. No automatic source-to-production pipeline is claimed until that connection is configured.
 

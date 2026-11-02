@@ -1,0 +1,98 @@
+/* Company identity only. Status/error colours, layout and workflow controls keep their existing meaning. */
+:root[data-company="electro"] {
+  --forest: #163b64;
+  --accent: #c2dffc;
+  --line: #dde5ef;
+  --muted: #647489;
+  --theme-ink: #20334a;
+  --theme-bg: #f3f6fa;
+  --theme-sidebar: #102a46;
+  --theme-sidebar-hover: #244663;
+  --theme-sidebar-text: #c0cfe1;
+  --theme-sidebar-label: #a5bad3;
+  --theme-sidebar-rule: #35506f;
+  --theme-accent-ink: #123b64;
+  --theme-highlight: #edf4fb;
+  --theme-card-rule: #93b5d9;
+  --theme-focus: #548dd0;
+  --theme-focus-ring: #548dd02a;
+}
+:root[data-company="aromazon"] {
+  --forest: #633b68;
+  --accent: #efdba8;
+  --line: #e8dfe8;
+  --muted: #796b7f;
+  --theme-ink: #382b3d;
+  --theme-bg: #faf7f9;
+  --theme-sidebar: #3d2344;
+  --theme-sidebar-hover: #58375d;
+  --theme-sidebar-text: #e0d2e2;
+  --theme-sidebar-label: #cbb6cf;
+  --theme-sidebar-rule: #6a4d70;
+  --theme-accent-ink: #4c3051;
+  --theme-highlight: #f4edf5;
+  --theme-card-rule: #b590bc;
+  --theme-focus: #ae85b6;
+  --theme-focus-ring: #ae85b632;
+}
+:root[data-company] { color: var(--theme-ink); background: var(--theme-bg); }
+[data-company] .sidebar { background: var(--theme-sidebar); color: #fff; }
+[data-company] .sidebar nav button { color: var(--theme-sidebar-text); }
+[data-company] .sidebar nav button.active { background: var(--accent); color: var(--theme-accent-ink); }
+[data-company] .sidebar nav button:not(.active):hover { background: var(--theme-sidebar-hover); color: #fff; }
+[data-company] .sidebar .nav-group .nav-label,
+[data-company] .sidebar-workflow > span { color: var(--theme-sidebar-label); }
+[data-company] .sidebar-workflow { border-color: var(--theme-sidebar-rule); }
+[data-company] .sidebar-workflow > strong { color: #fff; }
+[data-company] .brand-mark { color: var(--accent); border-color: var(--theme-sidebar-rule); }
+[data-company] .brand small,
+[data-company] .profile,
+[data-company] .login-flow { color: var(--theme-sidebar-text); }
+[data-company] .signed-in-user { color: var(--theme-sidebar-text); border-color: var(--theme-sidebar-rule); }
+[data-company] .login { background: var(--theme-bg); }
+[data-company] .login-story {
+  background: radial-gradient(ellipse at 95% 80%, var(--theme-sidebar-hover), transparent 62%), var(--theme-sidebar);
+  color: #fff;
+}
+[data-company] .login-story p,
+[data-company] .login-story > small { color: var(--theme-sidebar-text); }
+[data-company] .badge.dark { color: var(--accent); }
+[data-company] .primary:not(.destructive):hover:not(:disabled) { background: var(--theme-sidebar-hover); }
+[data-company] .secondary { color: var(--forest); border-color: var(--line); }
+[data-company] .secondary:hover:not(:disabled),
+[data-company] .icon-button:hover,
+[data-company] .task-flow button:hover,
+[data-company] .quick-actions > button:hover { background: var(--theme-highlight); }
+[data-company] .text-link:not(.danger),
+[data-company] .shipment-options > summary { color: var(--forest); }
+[data-company] .text-link:not(.danger):hover { color: var(--theme-sidebar); }
+[data-company] :is(input, select, textarea) { color: var(--theme-ink); border-color: var(--line); }
+[data-company] :is(input, select, textarea):focus { border-color: var(--theme-focus); box-shadow: 0 0 0 3px var(--theme-focus-ring); }
+[data-company] :is(input, button, a, select, summary):focus-visible { outline-color: var(--theme-focus); }
+[data-company] input[type="checkbox"] { accent-color: var(--forest); }
+[data-company] :is(.breadcrumb strong, .field, .eyebrow, .work-card-kind, .work-card-subtitle,
+  .work-card-reference, .work-card-facts span, .login-note p, .login-divider, .shared-devices > p,
+  .order-card > p, .order-card > small, .order-contents, .shared-device-facts > span, td, th, td small) { color: var(--muted); }
+[data-company] .record-card-grid > .work-card,
+[data-company] .trip-card-grid > .work-card { border-color: var(--line); border-top-color: var(--theme-card-rule); }
+[data-company] .record-card-grid > .work-card:hover,
+[data-company] .trip-card-grid > .work-card:hover { border-color: var(--theme-card-rule); }
+[data-company] :is(.record-card-grid, .trip-card-grid) :is(.work-card-title, .work-card-facts strong) { color: var(--forest); }
+[data-company] .work-card-footer { border-color: var(--line); color: var(--forest); }
+[data-company] .work-card[open] > summary,
+[data-company] .trip-foldout[open] > summary,
+[data-company] .record-group > summary:hover,
+[data-company] .trip-foldout > summary:hover,
+[data-company] .order-packing-context { background: var(--theme-highlight); }
+[data-company] .trip-icon,
+[data-company] .metric-icon:not(.amber-icon) { background: var(--theme-highlight); color: var(--forest); }
+[data-company] .task-flow :is(button, button > span, svg) { color: var(--forest); }
+[data-company] .scan-input { border-color: var(--theme-card-rule); background: #fff; }
+[data-company] .scan-result:not(.accepted):not(.duplicate):not(.rejected):not(.pending) { background: var(--theme-highlight); color: var(--forest); }
+[data-company] .scan-result:not(.accepted):not(.duplicate):not(.rejected):not(.pending) h2 { color: var(--forest); }
+[data-company] .scanner-top,
+[data-company] .scan-label { color: var(--muted); }
+[data-company] .sample-banner { background: var(--theme-highlight); color: var(--forest); border-color: var(--line); }
+[data-company] .sample-banner > button { color: var(--forest); }
+[data-company] .toast { background: var(--theme-sidebar); color: #fff; }
+[data-company] .app-footer { color: var(--muted); border-color: var(--line); }

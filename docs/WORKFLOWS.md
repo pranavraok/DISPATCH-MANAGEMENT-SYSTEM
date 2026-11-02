@@ -1,48 +1,62 @@
-# Two dispatch workflows
+# Independent company sites
 
-The same application, database and login serve both workflows. After signing in, choose **Pack before order** or **Order first**. The sidebar identifies the current workflow; **Switch workflow** returns to the choice. Refresh preserves the workflow and page in the URL. No second login or device pairing is required.
+| Company | Site | Workflow | Deployment configuration |
+| --- | --- | --- | --- |
+| Electro Group of Industries | https://electro-group-dispatch.vercel.app/ | Order first | DispatchSite=electro |
+| AROMAZEN PVT LTD | https://aromazon-india-dispatch.vercel.app/ | Pack before order | DispatchSite=aromazon |
 
-## Shared setup
+The same source code is deployed as two independent Vercel projects. Each project receives its own private DATABASE_URL, bootstrap passwords and company profile. There is no database bridge, shared master list, shared session, shared connector key or workflow switch. The original dual-workflow engine remains available only for development regression tests. Production requires a company profile.
 
-Open **Shared settings** from either dashboard or the initial choice. Add the actual products and customers once. The same company-level Tally mapping and connector are returned in both workflows. Pair the Tally PC once when physical integration is ready.
+## Electro: Order first
 
-The scanner uses the computer's existing HID/USB/receiver connection. Save a unique scanner workstation name in Shared settings on each computer. This browser setting is keyed by company, not workflow. Both paths use the same QR format, scanner component, speaker handling, A4 label PDF generator, packing PDF generator and browser printing. Select the actual printer through the browser/OS print dialog; the website does not silently install drivers or select an arbitrary printer.
+1. Sign in to Electro and add its products and customers in Settings.
+2. Record a received customer order, including destination and carton requirement.
+3. Pack for that exact order, obtain supervisor approval, print and attach labels.
+4. Confirm attachment and contents without scanning.
+5. Create a trip, reserve that order's cartons, then scan each carton once in Labels > Scan for dispatch.
+6. Approve loading and review billing. Real Tally posting remains disabled pending physical integration and readback validation.
 
-## Pack before order
+## Aromazon: Pack before order
 
-1. Open **Packing**, add the contents and carton counts as general stock, and obtain supervisor approval.
-2. Open **Labels > Print & attach**, batch-print the labels, attach them to matching cartons, and confirm the physical labels and contents. Do not scan here.
-3. When an order arrives, open **Orders**, record its customer, reference, destination and total carton requirement. Product totals are optional when only the carton count is known.
-4. In **Trips**, create the vehicle trip, choose the order and reserve the exact labelled cartons. The existing quick customer-only reservation remains available in this workflow. Unselected cartons remain available.
-5. Open **Labels > Scan for dispatch**, choose the shipment, enable the scanner/sound session and scan each physical carton once.
-6. Review and approve the complete reserved load, then review billing. Real Tally posting remains gated by the integration boundary below.
+1. Sign in to Aromazon and add its products and customers in Settings.
+2. Record manufactured, packed stock before an order exists.
+3. Approve packing, print and attach labels, then confirm attachment and contents without scanning.
+4. Receive the customer order later, create a trip and reserve the selected labelled cartons.
+5. Scan each selected carton once in Labels > Scan for dispatch, approve loading and review billing. Unselected stock stays available.
 
-## Order first
+Carton counts alone cannot prove an unrecorded product requirement. A label scan retrieves recorded contents; staff must ensure the label matches the physical carton.
 
-1. Open **Orders** and record the received customer order before packing.
-2. Use **Pack this order**, or choose the order in a new packing list/import. The order supplies the customer and warehouse. General unassigned packing is not accepted in this workflow.
-3. Record the actual contents, approve packing, batch-print and attach labels, and confirm the physical contents without scanning.
-4. Create a vehicle trip and choose that exact order when reserving its cartons. Cartons for another order are rejected even if the customer is the same.
-5. Perform the one dispatch scan per carton in **Labels > Scan for dispatch**, then approve loading and review billing.
+## Separate data and existing records
 
-## Counts, partial shipments and protection
+Electro retains its original database. Existing trial records are preserved and backed up before deployment. Legacy StockFirst work is retained there as historical test data but is inaccessible through Electro's fixed OrderFirst site. It is not copied into Aromazon. Aromazon starts with its own company, warehouse, administrators and empty operational/master tables.
 
-An order reference is unique within its workflow and company. The total ordered carton count is 1 to 10,000. Multiple partial shipments can share an order, but active allocations cannot exceed its total. Order-first packing cannot exceed the order's carton count. When product requirements are provided, quantities are checked in validated base units; a full order's carton count must also match all specified product totals.
+The API rejects the other workflow on state reads, detail reads and commands. Login, sessions and connector credentials are bound to the configured company. Startup refuses a database without the matching company identity. Each site serves its own branding and company name on documents.
 
-If only a carton count is recorded, the app cannot prove that the product mix matches an unrecorded customer requirement. Staff must review the recorded contents. A scan identifies the label and database snapshot, not sealed physical contents.
+## The same physical devices
 
-Workflow checks run on the server as well as in the UI. Lists, carton availability, trips, shipments, loading, billing, labels and operational history are filtered to the selected workflow. Products, customers, warehouses, users, Tally mapping and connectors are shared. Active carton allocations remain unique across the entire company. Uncertain scans block workflow switching and retain their original workflow in their recoverable request envelope.
+A USB/receiver scanner acts as keyboard input in the focused scan box. Open the correct company site, activate Labels > Scan for dispatch and select its scan box. Avoid scanning while the other company's tab has focus. Select the actual printer in the OS/browser print dialog. Browser workstation preferences and uncertain-scan records are isolated by origin; workstation names are also keyed by company. No hardware duplication is required.
 
-Existing records are retained as Pack before order during migration. Existing printed carton codes remain valid. Deletion still requires the existing role, state, reason and confirmation rules; only unused customer orders can be deleted.
+## Separate Tally connector profiles
 
-## Accounting and hardware acceptance
+Use the same connector executable with separate protected local stores and lock files:
 
-Packing, labelling, reserving and scanning do not manufacture or deduct Tally stock. Both workflows use the same accounting boundary. The current connector supports pairing and diagnostics; actual invoice creation, complete voucher/stock readback and confirmed invoice printing remain disabled until validated on the installed Tally test company. Do not interpret a draft bill or packing-list PDF as a tax invoice.
+- Pair Electro: Dispatch.Connector.exe --profile electro --pair
+- Run Electro: Dispatch.Connector.exe --profile electro
+- Pair Aromazon: Dispatch.Connector.exe --profile aromazon --pair
+- Run Aromazon: Dispatch.Connector.exe --profile aromazon
 
-Actual scanner, speaker and printer checks are still required on the physical workstation. Switching workflows does not require reconnecting them.
+Each pairing checks the website's company profile and stores its own HTTPS URL, connector ID, DPAPI credential, exact Tally company name and local endpoint. Pairing one profile cannot overwrite the other. Distinct service names are supported if installed later. Use separate Tally endpoints/instances where needed; the connector always checks the exact configured company. Electro production invoices are gated by the approved bill, current master data, the exact company, the Tally import result and exact-reference readback. A real Tally create/readback still needs on-site verification. Aromazen is unchanged.
 
-## Automated verification
+## Verification
 
-- `web/src/workflow.test.tsx`: initial choice, separate dashboards/orders, refresh, shared workstation settings, pending-scan switching guard and both packing entry paths.
-- `tests/workflows.mjs`: real API/PostgreSQL checks covering both complete paths through billing review, one-scan loading, shared mappings/connectors/masters, cross-workflow and same-customer/different-order rejection, remaining stock, order limits, unused-order deletion and blocked real posting.
-- The existing dispatch, grouping and single-scan suites remain applicable. Use only an isolated test database. See `docs/VALIDATION.md` for executed results.
+61 frontend tests pass, including fixed-dashboard URL tampering checks. The separate-database API suite tests both workflows through single-scan loading and billing, separate products/customers/mappings, cross-site cookie/connector rejection, foreign-carton rejection, remaining stock and blocked invoice posting. Seven connector journal/XML safeguards pass. TypeScript and .NET builds pass.
+
+Physical scanners, printers, installed Tally versions and real voucher/stock readback remain for on-site acceptance.
+
+## Release activation
+
+Both company sites are deployed independently. Aromazon’s private database credentials and bootstrap settings were activated on 31 October 2026 after explicit user approval. Live checks confirmed database health, administrator login, saved-session restoration, fixed workflow rejection, cross-company cookie rejection, Aromazon save/read/restore persistence and management read-only enforcement. The temporary settings probe was restored, and Electro’s mapping was unchanged. No sample products, cartons, orders or trips were added to Aromazon.
+
+Physical Tally, scanner and printer acceptance remains pending. Both current cloud databases are unclaimed trials: Electro expires on 2 November 2026 at 18:40 IST; Aromazon expires on 3 November 2026 at 10:44 IST. Claim each before its deadline and update runtime database credentials if the provider rotates them during transfer.
+
+Public GitHub source export remains unapproved and unchanged. The company separation code is committed locally and deployed privately to the two user-owned Vercel projects.

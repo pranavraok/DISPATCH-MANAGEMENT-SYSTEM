@@ -4,7 +4,6 @@ import {
   ScanLine,
   WifiOff,
   Check,
-  AlertTriangle,
   RefreshCw,
 } from "lucide-react";
 import { type Context, Badge, Field, Empty } from "./main";
@@ -33,6 +32,7 @@ export function pendingScanWorkflow(): Workflow {
 }
 export function DispatchScanScreen(ctx: Context) {
   const { all: s, sample, run, refresh } = ctx;
+  const guided = ctx.workflow === "OrderFirst";
   const [shipmentId, setShipmentId] = useState(ctx.work.kind === "shipment" ? ctx.work.id : ""),
     [station, setStation] = useState(() => readWorkstation(s.company.id).station),
     [sessionId, setSessionId] = useState(""),
@@ -72,6 +72,13 @@ export function DispatchScanScreen(ctx: Context) {
     };
   }, []);
   useEffect(() => {
+    if (!started) return;
+    // The scan field is disabled until `started` renders. Focus it after that render
+    // so a keyboard-wedge scanner can send its first carton immediately.
+    const frame = window.requestAnimationFrame(() => input.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [started]);
+  useEffect(() => {
     const session = s.loadingSessions.find(
       (x) => x.shipmentId === shipmentId && x.station === station,
     );
@@ -86,11 +93,53 @@ export function DispatchScanScreen(ctx: Context) {
     window.addEventListener('keydown', warnPausedInput, true);
     return () => window.removeEventListener('keydown', warnPausedInput, true);
   }, [started, pending, focused]);
-  function sound(kind: string) {
+  function speak(kind: string, detail = "") {
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") return false;
+    const words = kind === "Accepted"
+      ? "Approved. This box is loaded. You can scan the next box."
+      : kind === "Duplicate"
+        ? "Already loaded. This box was counted before. Please take the next box."
+        : kind === "Pending"
+          ? "Please wait. I’m checking that scan. Don’t scan another box yet."
+          : kind === "Ready"
+            ? "Scanner ready. Scan each box once, and wait for my confirmation."
+            : kind === "Test"
+              ? "Dispatch scanner voice check. Audio is working. Please scan one box at a time."
+              : detail.toLowerCase().includes("not reserved")
+                ? "Rejected. This box isn’t assigned to the selected shipment. Please check the box label."
+                : detail.toLowerCase().includes("invalid or wrong-company")
+                  ? "Rejected. This QR code doesn’t match this company. Please scan the box label printed by Dispatch."
+                  : detail.toLowerCase().includes("cannot be loaded")
+                    ? "Rejected. This box needs a supervisor check. Please check its status and label."
+                    : detail.toLowerCase().includes("paused")
+                      ? "Rejected. Scanning is paused. Check the connection and selected shipment before continuing."
+                      : "Rejected. This box wasn’t loaded. Please check its label and shipment.";
+    try {
+      const speech = window.speechSynthesis;
+      const utterance = new SpeechSynthesisUtterance(words);
+      const voices = speech.getVoices();
+      const voice = voices.find((v) => /^en[-_]in$/i.test(v.lang))
+        ?? voices.find((v) => /^en[-_]in/i.test(v.lang))
+        ?? voices.find((v) => /^en[-_]/i.test(v.lang));
+      utterance.lang = voice?.lang ?? "en-IN";
+      if (voice) utterance.voice = voice;
+      utterance.volume = 1;
+      utterance.rate = 0.94;
+      utterance.pitch = 1.02;
+      speech.cancel();
+      speech.speak(utterance);
+      return true;
+    } catch { return false; }
+  }
+  function sound(kind: string, detail = "") {
+    // Use the browser/Windows speech voice for clear spoken confirmation.
+    // Keep the existing tone only as a fallback on browsers without speech.
+    if (speak(kind, detail)) return;
     const a = audio.current;
     if (!a || a.state !== "running") return;
     const patterns: Record<string, number[]> = {
       Accepted: [660, 880],
+      Test: [660, 880],
       Duplicate: [440, 440],
       Rejected: [180, 120],
       Pending: [330],
@@ -125,7 +174,7 @@ export function DispatchScanScreen(ctx: Context) {
       setSessionId(r.id);
       setStarted(true);
       setResult(null);
-      input.current?.focus();
+      speak("Ready");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -156,12 +205,12 @@ export function DispatchScanScreen(ctx: Context) {
         message:
           "Loading is paused. Check connection, focus and the selected shipment.",
       });
-      sound("Rejected");
+      sound("Rejected", "Loading is paused. Check connection, focus and the selected shipment.");
       return;
     }
     if (qr.length > 160) {
       setResult({ outcome: "Rejected", message: "This QR code is too long." });
-      sound("Rejected");
+      sound("Rejected", "This QR code is too long.");
       return;
     }
     const p: Pending = {
@@ -179,22 +228,25 @@ export function DispatchScanScreen(ctx: Context) {
     store(p);
     setResult({
       outcome: "Pending",
-      message: "Waiting for the server. Do not move to the next carton.",
+      message: "Waiting for the server. Do not move to the next box.",
     });
     try {
       const r: Result = await api.send(p.envelope);
+      const shown: Result = r.outcome === "Rejected" && r.message.includes("Invalid or wrong-company carton QR")
+        ? { ...r, message: `${r.message} Scanner sent: ${JSON.stringify(qr.replace(/[\r\n]+$/, ""))}` }
+        : r;
       store(null);
-      setResult(r);
+      setResult(shown);
       setEvents((prev) =>
-        [{ ...r, at: new Date().toISOString() }, ...prev].slice(0, 12),
+        [{ ...shown, at: new Date().toISOString() }, ...prev].slice(0, 12),
       );
-      sound(r.outcome);
+      sound(r.outcome, r.message);
       await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
       setResult({
         outcome: "Pending",
         message:
-          "Result not confirmed. Keep this carton aside and check the saved result below.",
+          "Result not confirmed. Keep this box aside and check the saved result below.",
       });
       sound("Pending");
       setError((e as Error).message);
@@ -213,12 +265,12 @@ export function DispatchScanScreen(ctx: Context) {
       setEvents((prev) =>
         [{ ...r, at: new Date().toISOString() }, ...prev].slice(0, 12),
       );
-      sound(r.outcome);
+      sound(r.outcome, r.message);
       await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
       setError(
         (e as Error).message +
-          " Use Retry saved scan if no result was saved. You do not need to scan the carton again.",
+          " Use Retry saved scan if no result was saved. You do not need to scan the box again.",
       );
     }
   }
@@ -229,7 +281,7 @@ export function DispatchScanScreen(ctx: Context) {
       const r = await api.send(pending.envelope);
       store(null);
       setResult(r);
-      sound(r.outcome);
+      sound(r.outcome, r.message);
       await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
       setError((e as Error).message);
@@ -241,21 +293,15 @@ export function DispatchScanScreen(ctx: Context) {
     <>
       <div className="page-heading">
         <div>
-          <h1>
-            Labels
-          </h1>
-          <p>Scan each carton once here while loading it onto the selected vehicle.</p>
+          <h1>{guided ? "Scan boxes" : "Labels"}</h1>
+          <p>{guided ? "Scan each box once as it is loaded for dispatch." : "Scan each box once here while loading it for dispatch."}</p>
         </div>
         <Badge tone={online ? "sage" : "red"}>
           {online ? "Browser online" : "Connection unavailable"}
         </Badge>
       </div>
-      <div className="notice amber">
-        <AlertTriangle size={18} />
-        This is the only scanning step. Choose the customer shipment, then scan each carton as it goes onto the vehicle. Wait for Loaded on screen before moving to the next carton.
-      </div>
       <section className="panel station-context">
-        <Field label="Customer shipment">
+        <Field label={guided ? "Shipment" : "Customer shipment"}>
           <select
             value={shipmentId}
             disabled={!!pending || inflight.current}
@@ -271,20 +317,20 @@ export function DispatchScanScreen(ctx: Context) {
             <ShipmentChoices ctx={ctx} shipments={ctx.s.shipments.filter((x) => (!x.loadApproved || x.id === shipmentId) && x.state !== "Cancelled")} />
           </select>
         </Field>
-        <Field label="Workstation">
+        {!guided && <Field label="Workstation">
           <input
             value={station}
             disabled={started || !!pending}
             onChange={(e) => setStation(e.target.value)}
           />
-        </Field>
+        </Field>}
         <button
           className="primary"
           disabled={!!pending || sample || !shipmentId || !!shipment?.loadApproved}
           onClick={start}
         >
           <Volume2 size={18} />
-          Start scanning & turn on sound
+              {guided ? "Start scanning" : "Start scanning & turn on voice"}
         </button>
       </section>
       <div className="scanner-layout">
@@ -307,11 +353,11 @@ export function DispatchScanScreen(ctx: Context) {
             <button
               className="text-link"
               onClick={() => {
-                sound("Accepted");
+                if (!speak("Test")) sound("Test");
                 input.current?.focus();
               }}
             >
-              Test speaker <Volume2 size={15} />
+              Test voice <Volume2 size={15} />
             </button>
           </div>
           <div
@@ -337,7 +383,7 @@ export function DispatchScanScreen(ctx: Context) {
             }}
           >
             <label className="scan-label" htmlFor="carton-scan">
-              SCAN CARTON QR
+              {guided ? "SCAN BOX LABEL" : "SCAN BOX QR"}
             </label>
             <input
               id="carton-scan"
@@ -350,16 +396,16 @@ export function DispatchScanScreen(ctx: Context) {
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onChange={(e) => setScan(e.target.value)}
-              placeholder="Click here, then scan a carton…"
+              placeholder={guided ? "Click here, then scan…" : "Click here, then scan a box…"}
               onPaste={(e) => {
                 e.preventDefault();
                 setError(
-                  "Paste is blocked in live loading. Scan one physical carton at a time.",
+                  "Paste is blocked in live loading. Scan one physical box at a time.",
                 );
               }}
             />
             <div className="scan-hint">
-              Enter saves the scan. Wait for Loaded on screen and the PC sound.
+              {guided ? "Scan the QR label printed for this box by Dispatch. Product barcodes won’t identify a box. Wait for the spoken saved confirmation before the next box." : "Scan the box QR label printed by Dispatch. Product barcodes won’t identify a box. Wait for Loaded on screen and the spoken confirmation."}
             </div>
           </form>
           {error && (
@@ -369,7 +415,7 @@ export function DispatchScanScreen(ctx: Context) {
           )}
           {pending && (
             <div className="pending-recovery">
-              <strong>Keep this carton aside</strong>
+              <strong>Keep this box aside</strong>
               <p>
                 Request {pending.envelope.requestId}
                 <br />
@@ -402,12 +448,12 @@ export function DispatchScanScreen(ctx: Context) {
             {loaded.length}
             <span>/ {allocations.length}</span>
           </div>
-          <p>cartons loaded and saved</p>
+          <p>boxes loaded and saved</p>
           {shipment && <div className="scan-next-action">{shipment.loadApproved ? <button className="primary" onClick={() => ctx.navigate("billing")}>Review billing</button> : <button className="secondary" disabled={!!pending || allocations.length === 0 || loaded.length !== allocations.length || sample || !ctx.user.roles.some((role: string) => ["Admin", "DispatchSupervisor"].includes(role))} onClick={async () => {
-            if (!window.confirm("I checked that all reserved cartons are physically loaded on this vehicle.")) return;
-            try { await run("approveLoad", { id: shipment.id, physicalConfirmed: true }); setStarted(false); setResult(null); }
+            if (!window.confirm("I checked that all reserved boxes are physically loaded for dispatch.")) return;
+            try { await run("approveLoad", { id: shipment.id, physicalConfirmed: true }); setStarted(false); setResult(null); if (guided) ctx.navigate("billing"); }
             catch (e) { setError((e as Error).message); }
-          }}>Approve load</button>}</div>}
+          }}>{guided ? "Finish loading" : "Approve load"}</button>}</div>}
           <div className="progress">
             <span
               style={{
@@ -429,20 +475,20 @@ export function DispatchScanScreen(ctx: Context) {
             ))}
           </div>
           <div className="notice">
-            Item totals cover cartons shown on this page. Approval checks the full shipment.
+            Item totals cover boxes shown on this page. Approval checks the full shipment.
           </div>
-          <div className="tally-meta">
+          {!guided && <div className="tally-meta">
             <span>Operator</span>
             <strong>{ctx.user.name}</strong>
-          </div>
-          <div className="tally-meta">
+          </div>}
+          {!guided && <div className="tally-meta">
             <span>Station</span>
             <strong>{station}</strong>
-          </div>
-          <div className="tally-meta">
+          </div>}
+          {!guided && <div className="tally-meta">
             <span>Receiver status</span>
             <strong>Check manually</strong>
-          </div>
+          </div>}
         </section>
       </div>
       <section className="panel">
@@ -457,7 +503,7 @@ export function DispatchScanScreen(ctx: Context) {
             <thead>
               <tr>
                 <th>RESULT</th>
-                <th>CARTON / MESSAGE</th>
+                <th>BOX / MESSAGE</th>
                 <th>TIME</th>
               </tr>
             </thead>

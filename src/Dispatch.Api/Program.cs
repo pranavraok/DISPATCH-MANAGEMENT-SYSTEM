@@ -7,7 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 var site = SiteProfile.From(builder.Configuration);
-builder.Services.AddSingleton(new DeploymentScope(site));
+if (builder.Environment.IsDevelopment() && builder.Configuration["LocalPreview"] == "true" && site?.Slug == "aromazon")
+    site = site with { LocalPreview = true, Email = "preview@aromazen.local" };
+var deployment = new DeploymentScope(site, builder.Configuration["AromazenTallyCompany"]);
+builder.Services.AddSingleton(deployment);
 builder.Logging.AddJsonConsole();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString);
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 2 * 1024 * 1024);
@@ -45,7 +48,7 @@ app.UseCors(); app.UseRateLimiter(); app.UseDefaultFiles(); app.UseStaticFiles()
 if (connection != null && builder.Configuration["MigrateOnStart"] == "true") { await using var scope = app.Services.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<DispatchDb>(); await db.Database.MigrateAsync(); await Seed.Run(db, builder.Configuration); }
 if (connection != null && site != null) { await using var scope = app.Services.CreateAsyncScope(); await site.ValidateDatabase(scope.ServiceProvider.GetRequiredService<DispatchDb>()); }
 app.MapGet("/api/site", () => Results.Ok(site));
-app.MapGet("/api/health", async (DispatchDb db) => { var connected = connection != null && await db.Database.CanConnectAsync(); var ready = false; if (connected && site?.Slug == "electro") { var mapping = await db.Mappings.SingleOrDefaultAsync(x => x.CompanyId == site.CompanyId); if (mapping?.ContractValidated == true) { var live = await db.Connectors.Where(x => x.CompanyId == site.CompanyId && !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany && x.LastSeen > DateTimeOffset.UtcNow.AddMinutes(-4)).ToListAsync(); ready = live.Any(x => HasProductionInvoiceSetup(x.MastersSnapshot)); } } return Results.Json(new { service = (site?.CompanyName ?? "Dispatch") + " API", site = site?.Slug, workflow = site?.Workflow, database = connected ? "Connected" : "Not configured / unavailable", postingEnabled = ready, environment = app.Environment.EnvironmentName, version = "0.2.0" }, statusCode: connected ? 200 : 503); });
+app.MapGet("/api/health", async (DispatchDb db) => { var connected = connection != null && await db.Database.CanConnectAsync(); var ready = false; if (connected && site != null && deployment.PostingSupported) { var mapping = await db.Mappings.SingleOrDefaultAsync(x => x.CompanyId == site.CompanyId); if (mapping?.ContractValidated == true) { var live = await db.Connectors.Where(x => x.CompanyId == site.CompanyId && !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany && x.LastSeen > DateTimeOffset.UtcNow.AddMinutes(-4)).ToListAsync(); ready = live.Any(x => HasProductionInvoiceSetup(x.MastersSnapshot)); } } return Results.Json(new { service = (site?.CompanyName ?? "Dispatch") + " API", site = site?.Slug, workflow = site?.Workflow, database = connected ? "Connected" : "Not configured / unavailable", postingEnabled = ready, environment = app.Environment.EnvironmentName, version = "0.2.0" }, statusCode: connected ? 200 : 503); });
 app.MapPost("/api/auth/login", async (Login input, HttpContext ctx, DispatchDb db) =>
 {
     var email = input.Email.Trim().ToLowerInvariant(); var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.Active && (site == null || x.CompanyId == site.CompanyId)); var hasher = new PasswordHasher<User>();
@@ -55,7 +58,7 @@ app.MapPost("/api/auth/login", async (Login input, HttpContext ctx, DispatchDb d
 }).RequireRateLimiting("login");
 app.MapGet("/api/auth/me", async (HttpContext ctx, DispatchDb db) => { var (u, s) = await Auth.User(ctx, db); return Results.Ok(new { user = new { u.Id, u.Name, u.Email, u.Roles, u.CompanyId }, csrf = s.Csrf }); });
 app.MapPost("/api/auth/logout", async (HttpContext ctx, DispatchDb db) => { var (_, s) = await Auth.User(ctx, db, true); db.Sessions.Remove(s); await db.SaveChangesAsync(); ctx.Response.Cookies.Delete("dispatch_session"); return Results.Ok(); });
-app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, int? page, int? pageSize, string? search, string? workflow) =>
+app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, Operations ops, int? page, int? pageSize, string? search, string? workflow) =>
 {
     var (u, _) = await Auth.User(ctx, db); var c = u.CompanyId; var flow = site?.Resolve(workflow) ?? Workflows.Parse(workflow); var take = Math.Clamp(pageSize ?? 200, 1, 500); var skip = Math.Max(0, page ?? 0) * take;
     var manifests = db.Manifests.Where(x => x.CompanyId == c && x.Workflow == flow);
@@ -66,11 +69,12 @@ app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, int? page, int? 
     var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == c);
     var connectorRows = await db.Connectors.Where(x => x.CompanyId == c).ToListAsync();
     var connectors = connectorRows.Select(x => new { x.Id, x.Name, x.ExpectedCompany, x.Environment, x.Revoked, x.LastSeen, x.Diagnostics, x.MastersSyncedAt, ledgerOptions = TallyLedgerOptions.Read(x.MastersSnapshot) }).ToArray();
-    var postingEnabled = site?.Slug == "electro" && mapping.ContractValidated && connectorRows.Any(x => !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany && x.LastSeen > DateTimeOffset.UtcNow.AddMinutes(-4) && HasProductionInvoiceSetup(x.MastersSnapshot));
+    var postingEnabled = deployment.PostingSupported && mapping.ContractValidated && connectorRows.Any(x => !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany && x.LastSeen > DateTimeOffset.UtcNow.AddMinutes(-4) && HasProductionInvoiceSetup(x.MastersSnapshot));
     return Results.Ok(new
     {
         company = await db.Companies.SingleAsync(x => x.Id == c),
         workflow = flow,
+        packedInventory = site?.Slug == "aromazon" ? await ops.ReadPackedInventory(u) : null,
         orders = await db.Orders.Where(x => x.CompanyId == c && x.Workflow == flow).OrderByDescending(x => x.CreatedAt).Take(500).ToListAsync(),
         orderProgress = await db.Orders.Where(o => o.CompanyId == c && o.Workflow == flow).OrderByDescending(o => o.CreatedAt).Take(500).Select(o => new {
             orderId = o.Id,
@@ -103,20 +107,43 @@ app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, int? page, int? 
         postingEnabled
     });
 }).RequireRateLimiting("api");
+app.MapGet("/api/cartons/lookup", async (string qr, HttpContext ctx, DispatchDb db, Operations ops) => { var (u, _) = await Auth.User(ctx, db); return Results.Ok(await ops.LookupCarton(u, qr)); }).RequireRateLimiting("api");
 app.MapPost("/api/commands", async (Command command, HttpContext ctx, DispatchDb db, Operations ops) => { var (u, _) = await Auth.User(ctx, db, true); return Results.Ok(await ops.Execute(u, command)); }).RequireRateLimiting("api");
 app.MapGet("/api/work/{kind}/{id}", WorkQueries.Read).RequireRateLimiting("api");
 app.MapGet("/api/requests/{id}", async (string id, HttpContext ctx, DispatchDb db) => { var (u, _) = await Auth.User(ctx, db); var r = await db.Requests.SingleOrDefaultAsync(x => x.Id == id && x.CompanyId == u.CompanyId && x.ActorId == u.Id); return r == null ? Results.NotFound(new { state = "Unknown", message = "Original request may still be in flight. Retry only the same envelope and request ID." }) : Results.Content(r.Response, "application/json"); });
 app.MapPost("/api/maintenance/outbox", async (HttpContext ctx, DispatchDb db) => { var (u, _) = await Auth.User(ctx, db, true); Permissions.Require(u); return Results.Ok(new { events = await OutboxWorker.Drain(db), delivery = "Audit-feed polling. This does not claim delivery to email, Tally or printers." }); });
 app.MapGet("/api/cartons/{id}/history", async (string id, HttpContext ctx, DispatchDb db) => { var (u, _) = await Auth.User(ctx, db); var carton = await db.Cartons.SingleOrDefaultAsync(x => x.CompanyId == u.CompanyId && x.Id == id && (site == null || db.Manifests.Any(m => m.Id == x.ManifestId && m.CompanyId == u.CompanyId && m.Workflow == site.Workflow))) ?? throw new RuleException("Carton unavailable.", 404); return Results.Ok(new { carton, events = await db.Audit.Where(x => x.CompanyId == u.CompanyId && (x.EntityId == id || x.Data.Contains(id))).OrderBy(x => x.At).Take(500).ToListAsync() }); });
 app.MapGet("/api/documents/shipment/{id}", async (string id, HttpContext ctx, DispatchDb db) => { var (u, _) = await Auth.User(ctx, db); var s = await db.Shipments.SingleOrDefaultAsync(x => x.Id == id && x.CompanyId == u.CompanyId && (site == null || x.Workflow == site.Workflow)) ?? throw new RuleException("Shipment unavailable.", 404); var cartonIds = await db.Allocations.Where(x => x.CompanyId == u.CompanyId && x.ShipmentId == id && x.Active).Select(x => x.CartonId).ToArrayAsync(); return Results.Ok(new { documentType = "Packing list - not a tax invoice", shipment = s, customer = await db.Customers.SingleAsync(x => x.Id == s.CustomerId && x.CompanyId == u.CompanyId), cartons = await db.Cartons.Where(x => x.CompanyId == u.CompanyId && cartonIds.Contains(x.Id)).ToListAsync() }); });
+app.MapPost("/api/connector/production-upgrade", async (ProductionUpgrade input, HttpContext ctx, DispatchDb db) =>
+{
+    var c = await Auth.Connector(ctx, db);
+    if (site?.Slug != "aromazon" || !deployment.PostingSupported || c.CompanyId != site.CompanyId ||
+        c.ExpectedCompany != deployment.ExactTallyCompany || input.Company != deployment.ExactTallyCompany || !input.ConfirmProduction)
+        throw new RuleException("Production upgrade requires the paired AROMAZEN connector and this deployment's exact configured Tally company.", 403);
+    await using var tx = await db.Database.BeginTransactionAsync();
+    await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({c.CompanyId},0))");
+    await db.Entry(c).ReloadAsync();
+    if (c.Environment == "Production") return Results.Ok(new { environment = "Production", expectedCompany = c.ExpectedCompany, message = "Production connection already verified. Accounting mapping is checked separately." });
+    if (c.Environment != "Test") throw new RuleException("Unsupported connector environment.", 409);
+    if (await db.Jobs.AnyAsync(j => j.CompanyId == c.CompanyId && (j.State == "Queued" || j.State == "Claimed" || j.State == "Sending" || j.State == "ConfirmationUnknown" || j.State == "NeedsReview")))
+        throw new RuleException("Resolve outstanding invoice jobs before changing the connector environment.", 409);
+    var mapping = await db.Mappings.SingleAsync(m => m.CompanyId == c.CompanyId);
+    mapping.ContractValidated = false; mapping.Pattern = "Unvalidated";
+    c.Environment = "Production";
+    if (c.Name == "Tally test PC") c.Name = "AROMAZEN Tally PC";
+    var audit = new AuditEvent { CompanyId = c.CompanyId, ActorId = c.Id, Action = "connectorProductionUpgrade", EntityId = c.Id, Data = Json.Write(new { c.ExpectedCompany, previousEnvironment = "Test", environment = "Production", invoiceMappingReset = true }) };
+    db.Audit.Add(audit); db.Outbox.Add(new OutboxEvent { CompanyId = c.CompanyId, AuditId = audit.Id });
+    await db.SaveChangesAsync(); await tx.CommitAsync();
+    return Results.Ok(new { environment = "Production", expectedCompany = c.ExpectedCompany, message = "AROMAZEN connection upgraded. Validate the accounting mapping separately before invoicing." });
+});
 app.MapPost("/api/connector/heartbeat", async (Heartbeat input, HttpContext ctx, DispatchDb db) =>
 {
     var c = await Auth.Connector(ctx, db); if (input.Company != c.ExpectedCompany || input.Environment != c.Environment) throw new RuleException("Wrong company or environment. Integration stopped.", 409); c.LastSeen = DateTimeOffset.UtcNow; c.Diagnostics = Json.Write(new { input.TallyReachable, input.Version, input.Detail, company = input.Company, postingEnabled = false }); await db.SaveChangesAsync(); return Results.Ok(new { postingEnabled = false, expectedCompany = c.ExpectedCompany, message = "Diagnostics only; posting contract is unvalidated." });
 });
 app.MapPost("/api/connector/masters", async (MasterSnapshot input, HttpContext ctx, DispatchDb db) =>
 {
-    var c = await Auth.Connector(ctx, db); if (site?.Slug != "electro") throw new RuleException("Tally master import is enabled only for Electro Group.", 403);
-    if (c.Environment != "Production" || c.ExpectedCompany != "ELECTRO GROUP OF INDUSTRIES") throw new RuleException("The connector is not scoped to Electro Group's production company.", 403);
+    var c = await Auth.Connector(ctx, db); if (!deployment.PostingSupported) throw new RuleException("Configure the deployment's exact Tally company before synchronizing masters.", 403);
+    if (c.Environment != "Production" || c.ExpectedCompany != deployment.ExactTallyCompany) throw new RuleException("The connector is not scoped to this site's exact production company.", 403);
     if (input.Company != c.ExpectedCompany || input.Environment != "Production" || input.Items.Length > 500 || input.Ledgers.Length > 1000) throw new RuleException("Wrong company scope or master snapshot exceeds the limit.");
     if (input.Items.Length == 0 || input.Ledgers.Length == 0) throw new RuleException("Tally returned an empty master list. The previous synchronized records were kept.", 409);
     await using var tx = await db.Database.BeginTransactionAsync(); await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({c.CompanyId},0))");
@@ -137,9 +164,9 @@ app.MapPost("/api/connector/masters", async (MasterSnapshot input, HttpContext c
 app.MapGet("/api/connector/jobs/next", async (HttpContext ctx, DispatchDb db) =>
 {
     var c = await Auth.Connector(ctx, db);
-    if (site?.Slug != "electro" || c.Environment != "Production" || c.ExpectedCompany != "ELECTRO GROUP OF INDUSTRIES") throw new RuleException("Invoice posting is restricted to Electro Group's exact production company.", 403);
+    if (!deployment.PostingSupported || c.Environment != "Production" || c.ExpectedCompany != deployment.ExactTallyCompany) throw new RuleException("Invoice posting requires this site's exact production company.", 403);
     var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == c.CompanyId);
-    if (!mapping.ContractValidated || mapping.Pattern != "ElectroGSTInvoiceV1") return Results.NoContent();
+    if (!mapping.ContractValidated || mapping.Pattern != deployment.InvoicePattern) return Results.NoContent();
     await using var tx = await db.Database.BeginTransactionAsync();
     await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({c.CompanyId},0))");
     var now = DateTimeOffset.UtcNow;
@@ -160,7 +187,7 @@ app.MapGet("/api/connector/jobs/next", async (HttpContext ctx, DispatchDb db) =>
     if (detail.Payload.Lines.Any(x => x.DiscountPercent > 0) || detail.Payload.Freight > 0 || detail.Payload.OtherCharges > 0)
     {
         var diagnostics = Json.Read<ConnectorDiagnostics>(c.Diagnostics);
-        if (diagnostics.Version != "1.7.0-electro-charges")
+        if (diagnostics.Version != "1.7.0-electro-charges" && diagnostics.Version != "1.8.0-company-dispatch")
             throw new RuleException("Invoice discounts and additional charges are mapped, but the Tally PC connector must be updated before this invoice can be sent. Keep this bill saved; no voucher was sent.", 409);
     }
     await db.SaveChangesAsync(); await tx.CommitAsync();
@@ -168,7 +195,7 @@ app.MapGet("/api/connector/jobs/next", async (HttpContext ctx, DispatchDb db) =>
 });
 app.MapPost("/api/connector/jobs/{id}/sending", async (string id, ConnectorJobSending input, HttpContext ctx, DispatchDb db) =>
 {
-    var c = await Auth.Connector(ctx, db); if (site?.Slug != "electro" || c.Environment != "Production" || c.ExpectedCompany != "ELECTRO GROUP OF INDUSTRIES") throw new RuleException("Invoice posting is restricted to Electro Group's exact production company.", 403);
+    var c = await Auth.Connector(ctx, db); if (!deployment.PostingSupported || c.Environment != "Production" || c.ExpectedCompany != deployment.ExactTallyCompany) throw new RuleException("Invoice posting requires this site's exact production company.", 403);
     await using var tx = await db.Database.BeginTransactionAsync();
     await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({c.CompanyId},0))");
     var job = await db.Jobs.SingleOrDefaultAsync(x => x.CompanyId == c.CompanyId && x.Id == id) ?? throw new RuleException("Invoice job not found.", 404);
@@ -180,7 +207,7 @@ app.MapPost("/api/connector/jobs/{id}/sending", async (string id, ConnectorJobSe
 });
 app.MapPost("/api/connector/jobs/{id}/result", async (string id, ConnectorJobOutcome input, HttpContext ctx, DispatchDb db) =>
 {
-    var c = await Auth.Connector(ctx, db); if (site?.Slug != "electro" || c.Environment != "Production" || c.ExpectedCompany != "ELECTRO GROUP OF INDUSTRIES") throw new RuleException("Invoice posting is restricted to Electro Group's exact production company.", 403);
+    var c = await Auth.Connector(ctx, db); if (!deployment.PostingSupported || c.Environment != "Production" || c.ExpectedCompany != deployment.ExactTallyCompany) throw new RuleException("Invoice posting requires this site's exact production company.", 403);
     var job = await db.Jobs.SingleOrDefaultAsync(x => x.CompanyId == c.CompanyId && x.Id == id) ?? throw new RuleException("Invoice job not found.", 404);
     if (job.PayloadHash != input.PayloadHash || job.ConnectorId != c.Id) throw new RuleException("Invoice result does not match the claimed connector job.", 409);
     var detail = TallyJobDetails.Read(job.Detail); if (detail.Payload == null) throw new RuleException("Invoice payload is unavailable.", 409);
@@ -208,7 +235,7 @@ app.MapPost("/api/connector/jobs/{id}/result", async (string id, ConnectorJobOut
 });
 app.MapGet("/api/documents/invoice/{id}", async (string id, HttpContext ctx, DispatchDb db) =>
 {
-    var (u, _) = await Auth.User(ctx, db); if (site?.Slug != "electro") throw new RuleException("Invoice documents are enabled only for Electro Group.", 403);
+    var (u, _) = await Auth.User(ctx, db); if (!deployment.PostingSupported) throw new RuleException("Invoice documents require a configured company.", 403);
     var shipment = await db.Shipments.SingleOrDefaultAsync(x => x.CompanyId == u.CompanyId && x.Id == id) ?? throw new RuleException("Shipment unavailable.", 404);
     var job = shipment.InvoiceJobId == null ? null : await db.Jobs.SingleOrDefaultAsync(x => x.CompanyId == u.CompanyId && x.Id == shipment.InvoiceJobId);
     if (job == null || job.State != "Confirmed") throw new RuleException("A Tally-confirmed invoice is not available to print.", 409);
@@ -248,6 +275,7 @@ static bool HasProductionInvoiceSetup(string snapshot)
 }
 
 record Login(string Email, string Password);
+record ProductionUpgrade(string Company, bool ConfirmProduction);
 record Heartbeat(string Company, string Environment, bool TallyReachable, string Version, string Detail);
 record MasterSnapshot(string Company, string Environment, TallyStockItem[] Items, TallyLedger[] Ledgers, string? CompanyState = null);
 record ConnectorJobSending(string PayloadHash);

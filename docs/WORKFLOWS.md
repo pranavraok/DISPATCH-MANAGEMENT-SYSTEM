@@ -16,15 +16,14 @@ The same source code is deployed as two independent Vercel projects. Each projec
 5. Create a trip, reserve that order's cartons, then scan each carton once in Labels > Scan for dispatch.
 6. Approve loading and review billing. Real Tally posting remains disabled pending physical integration and readback validation.
 
-## Aromazon: Pack before order
+## AROMAZEN: QR-generated inventory before customer dispatch
 
-1. Sign in to Aromazon and add its products and customers in Settings.
-2. Record manufactured, packed stock before an order exists.
-3. Approve packing, print and attach labels, then confirm attachment and contents without scanning.
-4. Receive the customer order later, create a trip and reserve the selected labelled cartons.
-5. Scan each selected carton once in Labels > Scan for dispatch, approve loading and review billing. Unselected stock stays available.
+1. Record carton count and product quantities per carton. Begin with one product; add more products or a different carton group as needed.
+2. Generate the unique QR labels. The generated cartons and their products immediately become packed inventory. Print and attach the labels; there is no inventory scan or receiving approval.
+3. Select the customer, order/reference and destination, then scan whole available cartons for dispatch. Each accepted scan updates inventory and the same customer's draft bill.
+4. Finish loading, review/approve billing and use AROMAZEN's separately configured Tally company and verified invoice readback. Unscanned cartons remain available.
 
-Carton counts alone cannot prove an unrecorded product requirement. A label scan retrieves recorded contents; staff must ensure the label matches the physical carton.
+Reprinting and contents lookup do not add inventory. See [AROMAZEN.md](AROMAZEN.md) for the completed local checklist, migration preservation and acceptance evidence. Older deployment records below are historical observations.
 
 ## Separate data and existing records
 

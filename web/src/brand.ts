@@ -9,6 +9,9 @@ export const brand = {
 };
 
 const labels: Record<string, string> = {
+  PendingLabel: "QR not generated",
+  PendingReceipt: "Awaiting first scan",
+  PendingApproval: "Awaiting supervisor approval",
   PackingClerk: "Packing staff",
   PackingSupervisor: "Packing supervisor",
   DispatchSupervisor: "Dispatch supervisor",

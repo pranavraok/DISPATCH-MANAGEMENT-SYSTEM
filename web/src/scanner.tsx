@@ -10,6 +10,7 @@ import { type Context, Badge, Field, Empty } from "./main";
 import { date, totals, type Row } from "./domain";
 import * as api from "./api";
 import { plainLabel } from "./brand";
+import { site } from "./site";
 import { ShipmentChoices } from "./work-ui";
 import { shortReference } from "./codes";
 import { readWorkstation } from "./workstation";
@@ -32,7 +33,8 @@ export function pendingScanWorkflow(): Workflow {
 }
 export function DispatchScanScreen(ctx: Context) {
   const { all: s, sample, run, refresh } = ctx;
-  const guided = ctx.workflow === "OrderFirst";
+  const stockDispatch = site?.slug === "aromazon";
+  const guided = ctx.workflow === "OrderFirst" || stockDispatch;
   const [shipmentId, setShipmentId] = useState(ctx.work.kind === "shipment" ? ctx.work.id : ""),
     [station, setStation] = useState(() => readWorkstation(s.company.id).station),
     [sessionId, setSessionId] = useState(""),
@@ -436,7 +438,7 @@ export function DispatchScanScreen(ctx: Context) {
         <section className="panel load-progress">
           <div className="panel-heading">
             <div>
-              <h2>Shipment progress</h2>
+              <h2>{stockDispatch ? "Cartons added to bill" : "Shipment progress"}</h2>
               <p>
                 {shipment
                   ? s.customers.find((c) => c.id === shipment.customerId)?.name
@@ -450,7 +452,7 @@ export function DispatchScanScreen(ctx: Context) {
           </div>
           <p>boxes loaded and saved</p>
           {shipment && <div className="scan-next-action">{shipment.loadApproved ? <button className="primary" onClick={() => ctx.navigate("billing")}>Review billing</button> : <button className="secondary" disabled={!!pending || allocations.length === 0 || loaded.length !== allocations.length || sample || !ctx.user.roles.some((role: string) => ["Admin", "DispatchSupervisor"].includes(role))} onClick={async () => {
-            if (!window.confirm("I checked that all reserved boxes are physically loaded for dispatch.")) return;
+            if (!window.confirm(stockDispatch ? "I checked that all scanned cartons are physically loaded for this customer. Finish loading and review the bill?" : "I checked that all reserved boxes are physically loaded for dispatch.")) return;
             try { await run("approveLoad", { id: shipment.id, physicalConfirmed: true }); setStarted(false); setResult(null); if (guided) ctx.navigate("billing"); }
             catch (e) { setError((e as Error).message); }
           }}>{guided ? "Finish loading" : "Approve load"}</button>}</div>}

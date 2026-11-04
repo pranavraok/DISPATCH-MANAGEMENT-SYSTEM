@@ -50,6 +50,7 @@ import {
   ReturnsScreen,
   ReportsScreen,
 } from "./screens";
+import { AromazenHome, AromazenPacking, AromazenInventory, AromazenDispatch, AromazenHistory } from "./aromazen";
 import { hasPendingScan } from "./scanner";
 import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
 import { WorkSelector, ShipmentOverview } from "./work-ui";
@@ -157,6 +158,7 @@ const nav = [
   ["reports", "Reports", Activity],
   ["setup", "Settings", Settings],
 ] as const;
+const navigationLabel = (id: string, label: string) => site?.slug === "aromazon" ? ({ cartons: "Inventory", trips: "Dispatch", orders: "Order history", packing: "Pack & QR labels" }[id] ?? label) : label;
 const connectionWarning = "Connection lost. The numbers may be old. Wait for confirmation before loading a box.";
 function savedPage() {
   const page = window.location.hash.slice(1);
@@ -389,10 +391,10 @@ export function App() {
   const current = nav.find((x) => x[0] === page)!;
   const screens: Record<string, ReactNode> = {
     overview: <Overview {...ctx} />,
-    orders: <OrdersScreen key={workflow} {...ctx} />,
-    packing: <PackingScreen key={selectionKey} {...ctx} />,
-    cartons: <CartonScreen key={selectionKey} {...ctx} />,
-    trips: <TripsScreen key={selectionKey} {...ctx} />,
+    orders: site?.slug === "aromazon" ? <AromazenHistory {...ctx} /> : <OrdersScreen key={workflow} {...ctx} />,
+    packing: site?.slug === "aromazon" ? <AromazenPacking {...ctx} /> : <PackingScreen key={selectionKey} {...ctx} />,
+    cartons: site?.slug === "aromazon" ? <AromazenInventory key={selectionKey} {...ctx} /> : <CartonScreen key={selectionKey} {...ctx} />,
+    trips: site?.slug === "aromazon" ? <AromazenDispatch key={selectionKey} {...ctx} /> : <TripsScreen key={selectionKey} {...ctx} />,
     billing: <BillingScreen key={selectionKey} {...ctx} />,
     returns: <ReturnsScreen key={selectionKey} {...ctx} />,
     reports: <ReportsScreen {...ctx} />,
@@ -415,12 +417,12 @@ export function App() {
           {simpleElectro ? <>
             <div className="nav-group"><div className="nav-label">WORK</div><button className={page === "overview" ? "active" : ""} aria-current={page === "overview" ? "page" : undefined} onClick={() => { navigate("overview"); setMobile(false); }}><LayoutDashboard size={18} /><span>Dispatch</span>{page === "overview" && <ChevronRight size={15} />}</button><button className={page === "orders" ? "active" : ""} aria-current={page === "orders" ? "page" : undefined} onClick={() => { navigate("orders"); setMobile(false); }}><ClipboardList size={18} /><span>Past orders</span>{page === "orders" && <ChevronRight size={15} />}</button></div>
             <div className="nav-group"><div className="nav-label">COMPANY</div><button className={page === "setup" ? "active" : ""} aria-current={page === "setup" ? "page" : undefined} onClick={() => navigate("setup")}><Settings size={18} /><span>Settings</span>{page === "setup" && <ChevronRight size={15} />}</button></div>
-            <details className="nav-more"><summary>More</summary><div className="nav-group">{nav.filter(([id]) => ["returns", "reports"].includes(id)).map(([id, label, Icon]) => <button key={id} className={page === id ? "active" : ""} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span>{page === id && <ChevronRight size={15} />}</button>)}</div></details>
+            <details className="nav-more"><summary>More</summary><div className="nav-group">{nav.filter(([id]) => ["returns", "reports"].includes(id)).map(([id, label, Icon]) => <button key={id} className={page === id ? "active" : ""} onClick={() => navigate(id)}><Icon size={18} /><span>{navigationLabel(id, label)}</span>{page === id && <ChevronRight size={15} />}</button>)}</div></details>
           </> : <>
           {[
-            ["Prepare", ["overview", "orders", "packing"]],
-            ["Dispatch", ["trips", "cartons", "billing"]],
-            ["History", ["returns", "reports"]],
+            ["Prepare", site?.slug === "aromazon" ? ["overview", "packing", "cartons"] : ["overview", "orders", "packing"]],
+            ["Dispatch", site?.slug === "aromazon" ? ["trips", "billing"] : ["trips", "cartons", "billing"]],
+            ["History", site?.slug === "aromazon" ? ["orders", "returns", "reports"] : ["returns", "reports"]],
             ["Company", ["setup"]],
           ].map(([label, ids]) => <div className="nav-group" key={String(label)}><div className="nav-label">{label}</div>{nav.filter(([id]) => (ids as string[]).includes(id)).map(([id, label, Icon]) => (
             <button
@@ -433,7 +435,7 @@ export function App() {
               }}
             >
               <Icon size={18} />
-              <span>{id === "setup" && !site ? "Shared settings" : label}</span>
+              <span>{id === "setup" && !site ? "Shared settings" : navigationLabel(id, label)}</span>
               {page === id && <ChevronRight size={15} />}
             </button>
           ))}</div>)}
@@ -464,7 +466,7 @@ export function App() {
             </button>
             <span className="breadcrumb">
               Dispatch <ChevronRight size={13} />
-              <strong>{simpleElectro && page === "overview" ? "Dispatch" : current[1]}</strong>
+              <strong>{simpleElectro && page === "overview" ? "Dispatch" : navigationLabel(current[0], current[1])}</strong>
             </span>
           </div>
           <div className="top-actions">
@@ -482,6 +484,7 @@ export function App() {
           </div>
         </header>
         <div className="content">
+          {site?.slug === "aromazon" && site.localPreview && <div className="notice amber"><strong>Local review</strong><span>Separate preview data. Your live inventory and Tally books are not being changed.</span></div>}
           {sample && (
             <div className="sample-banner">
               <ShieldCheck size={17} />
@@ -523,7 +526,7 @@ export function App() {
             {sample
               ? "Sample data"
               : `Saved state · ${lastSync ? date(lastSync) : date(s.serverTime)}`}{" "}
-            <span className="footer-version">Electro Production</span>
+            <span className="footer-version">{site?.slug === "aromazon" ? "AROMAZEN" : "Electro Production"}</span>
           </span>
         </footer>
       </main>
@@ -674,6 +677,7 @@ function Login({
 function Overview(ctx: Context) {
   const { s, navigate } = ctx;
   const workflow = ctx.workflow ?? "StockFirst", info = workflows[workflow], orderFirst = workflow === "OrderFirst";
+  if (site?.slug === "aromazon") return <AromazenHome {...ctx} />;
   if (site?.slug === "electro" && orderFirst && !ctx.sample) return <ElectroDispatchGuide {...ctx} />;
   const count = (state: string) => s.counts.find((x) => x.state === state)?.count ?? 0;
   return (

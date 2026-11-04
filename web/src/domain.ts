@@ -10,6 +10,7 @@ export type Line = {
 export type Group = { marking: string; count: number; lines: Line[] };
 export type Row = Record<string, any>;
 export type State = {
+  packedInventory?: { availableCartons: number; pendingLabels: number; heldCartons: number; loadedCartons: number; products: { sku: string; unit: string; quantity: number; cartons: number }[] };
   workflow?: import("./workflow").Workflow;
   orders?: Row[];
   orderProgress?: Row[];

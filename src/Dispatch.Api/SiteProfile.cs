@@ -2,12 +2,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Dispatch;
 
-public sealed record DeploymentScope(SiteProfile? Site);
+public sealed record DeploymentScope(SiteProfile? Site, string? AromazenTallyCompany = null)
+{
+    public string? ExactTallyCompany => Site?.Slug == "aromazon" ? AromazenTallyCompany : Site?.Slug == "electro" ? "ELECTRO GROUP OF INDUSTRIES" : null;
+    public string InvoicePattern => Site?.Slug == "aromazon" ? "AromazenGSTInvoiceV1" : "ElectroGSTInvoiceV1";
+    public bool PostingSupported => Site != null && !string.IsNullOrWhiteSpace(ExactTallyCompany);
+}
 
 // Deployment-owned identity. Requests cannot select another company or workflow.
 public sealed record SiteProfile(string Slug, string CompanyId, string CompanyName, string ShortName,
     string Tagline, string Email, string Workflow)
 {
+    public bool LocalPreview { get; init; }
     public static SiteProfile? From(IConfiguration config) => config["DispatchSite"] switch
     {
         null or "" => null, // Original engine is retained for local regression tests only.

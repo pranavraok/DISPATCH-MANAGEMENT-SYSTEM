@@ -21,7 +21,7 @@ for (const [slug, workflow, companyName, shortName, tagline, email] of [
       return new Response(JSON.stringify(path === "/api/auth/me" ? { user: { id: "admin", companyId: slug, name: "Admin", roles: ["Admin"] }, csrf: "qa" } : { ...sampleState(), workflow, orders: [], company: { id: slug, name: companyName } }));
     }));
     render(<App />);
-    await screen.findByRole("heading", { name: workflow === "OrderFirst" ? "Order first" : "Pack before order" });
+    await screen.findByRole("heading", { name: workflow === "OrderFirst" ? "Order first" : "Packed stock & dispatch" });
     expect(readWorkflow()).toBe(workflow);
     expect(brand.name).toBe(companyName);
     expect(requests.some(path => path.includes("workflow=" + workflow))).toBe(true);

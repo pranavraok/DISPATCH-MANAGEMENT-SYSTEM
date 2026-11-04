@@ -48,10 +48,16 @@ if (args.Contains("--pair"))
     Console.WriteLine(); if (secret.Length != 64) throw new InvalidOperationException("Pairing key must be 64 hex characters.");
     var config = new ConnectorConfig(cloud, id, company, "Production", endpoint); await File.WriteAllTextAsync(Path.Combine(folder, "config.json"), JsonSerializer.Serialize(config)); await File.WriteAllBytesAsync(Path.Combine(folder, "credential.dpapi"), ProtectedData.Protect(Encoding.UTF8.GetBytes(secret.ToString()), null, DataProtectionScope.CurrentUser)); Console.WriteLine("Paired for the exact company production connection."); return;
 }
-var builder = Host.CreateApplicationBuilder(args); builder.Services.AddWindowsService(o => o.ServiceName = profile == null ? "Electro Group Dispatch Connector" : "Dispatch Connector - " + profile); builder.Services.AddSingleton(new ConnectorStorage(folder)); builder.Services.AddHostedService<ConnectorWorker>(); await builder.Build().RunAsync();
+var diagnosticsOnly = args.Contains("--diagnostics-only");
+var builder = Host.CreateApplicationBuilder(args.Where(a => a != "--diagnostics-only").ToArray()); builder.Services.AddWindowsService(o => o.ServiceName = profile == null ? "Electro Group Dispatch Connector" : "Dispatch Connector - " + profile); builder.Services.AddSingleton(new ConnectorStorage(folder, diagnosticsOnly)); builder.Services.AddHostedService<ConnectorWorker>(); await builder.Build().RunAsync();
 
 record ConnectorConfig(string Cloud, string ConnectorId, string Company, string Environment, string TallyEndpoint);
-record ConnectorStorage(string Folder);
+record ConnectorStorage(string Folder, bool DiagnosticsOnly = false);
+static class ConnectorMode
+{
+    public static bool AllowsEnvironment(string environment, bool diagnosticsOnly) => environment == "Production" || (environment == "Test" && diagnosticsOnly);
+    public static bool AllowsAccounting(string environment, bool diagnosticsOnly) => environment == "Production" && !diagnosticsOnly;
+}
 record ConnectorJobEnvelope(string JobId, string PayloadHash, TallyInvoicePayload Payload, bool ReconcileOnly, bool RetryAuthorized = false);
 record SendingAck(bool Accepted, string State, bool ReconcileOnly);
 record TallyImportResult(int Created, int Errors, string LineError);
@@ -68,14 +74,17 @@ sealed class ConnectorWorker(ConnectorStorage storage, ILogger<ConnectorWorker> 
             await File.WriteAllTextAsync(configPath, JsonSerializer.Serialize(config), stoppingToken);
             logger.LogInformation("Upgraded the existing Electro pairing to the production connection profile.");
         }
-        if (new Uri(config.Cloud).Scheme != "https" || !new Uri(config.TallyEndpoint).IsLoopback || config.Environment != "Production") throw new InvalidOperationException("Connector environment policy failed.");
+        if (new Uri(config.Cloud).Scheme != "https" || !new Uri(config.TallyEndpoint).IsLoopback || !ConnectorMode.AllowsEnvironment(config.Environment, storage.DiagnosticsOnly)) throw new InvalidOperationException("Connector environment policy failed. A Test profile requires --diagnostics-only and cannot process accounting work.");
         var secret = Encoding.UTF8.GetString(ProtectedData.Unprotect(await File.ReadAllBytesAsync(Path.Combine(storage.Folder, "credential.dpapi"), stoppingToken), null, DataProtectionScope.CurrentUser));
         using var processLock = new FileStream(Path.Combine(storage.Folder, "connector.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         using var cloud = new HttpClient { BaseAddress = new Uri(config.Cloud), Timeout = TimeSpan.FromSeconds(20) }; cloud.DefaultRequestHeaders.Add("X-Connector-Id", config.ConnectorId); cloud.DefaultRequestHeaders.Add("X-Connector-Key", secret);
         using var siteResponse = await cloud.GetAsync("/api/site", stoppingToken); siteResponse.EnsureSuccessStatusCode();
         using var siteDoc = JsonDocument.Parse(await siteResponse.Content.ReadAsStringAsync(stoppingToken));
-        var siteInfo = siteDoc.RootElement; var electroMasterSync = siteInfo.ValueKind == JsonValueKind.Object && siteInfo.TryGetProperty("slug", out var slug) && slug.GetString() == "electro";
-        logger.LogInformation("Electro master sync enabled={MasterSync}.", electroMasterSync);
+        var siteInfo = siteDoc.RootElement; var siteSlug = siteInfo.ValueKind == JsonValueKind.Object && siteInfo.TryGetProperty("slug", out var slug) ? slug.GetString() : null; var electroMasterSync = siteSlug is "electro" or "aromazon";
+        if (config.Environment == "Test" && siteSlug != "aromazon") throw new InvalidOperationException("Test diagnostics are supported only for the isolated AROMAZEN site.");
+        var accountingEnabled = ConnectorMode.AllowsAccounting(config.Environment, storage.DiagnosticsOnly);
+        logger.LogInformation("Company master sync enabled={MasterSync}.", electroMasterSync && accountingEnabled);
+        if (!accountingEnabled) logger.LogInformation("Diagnostics only: exact company checks and heartbeat. No master synchronization or invoice jobs will run.");
         using var tally = new HttpClient { Timeout = TimeSpan.FromSeconds(20), MaxResponseContentBufferSize = 4 * 1024 * 1024 }; var failures = 0; var lastMasterAttempt = DateTimeOffset.MinValue;
         try
         {
@@ -86,7 +95,8 @@ sealed class ConnectorWorker(ConnectorStorage storage, ILogger<ConnectorWorker> 
                     using var response = await tally.PostAsync(config.TallyEndpoint, new StringContent(TallyXml.CompanyProbe(config.Company), Encoding.UTF8, "text/xml"), stoppingToken); response.EnsureSuccessStatusCode(); var xml = TallyXml.Parse(await response.Content.ReadAsStringAsync(stoppingToken));
                     var companyNode = xml.Descendants("COMPANY").FirstOrDefault(x => string.Equals((string?)x.Attribute("NAME") ?? (string?)x.Element("NAME"), config.Company, StringComparison.Ordinal));
                     reachable = companyNode != null; detail = reachable ? "Exact expected company found. Master sync is active; production invoice mapping and readback must be accountant-checked." : "Expected company not exported. Open the exact company and check integration permissions/port.";
-                    if (reachable && electroMasterSync && DateTimeOffset.UtcNow - lastMasterAttempt > TimeSpan.FromMinutes(2))
+                    if (reachable && !accountingEnabled) detail = "Exact expected company found. Diagnostics only; master synchronization and invoice posting are disabled.";
+                    if (reachable && accountingEnabled && electroMasterSync && DateTimeOffset.UtcNow - lastMasterAttempt > TimeSpan.FromMinutes(2))
                     {
                         lastMasterAttempt = DateTimeOffset.UtcNow;
                         logger.LogInformation("Reading Tally stock items and customer ledgers for automatic master sync.");
@@ -112,8 +122,8 @@ sealed class ConnectorWorker(ConnectorStorage storage, ILogger<ConnectorWorker> 
                     }
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or XmlException or InvalidOperationException or FormatException) { detail = "Tally is stopped, integration unavailable, response unsafe or endpoint timed out. No accounting request was sent."; }
-                try { using var reply = await cloud.PostAsJsonAsync("/api/connector/heartbeat", new { company = config.Company, environment = config.Environment, tallyReachable = reachable, version = "1.7.0-electro-charges", detail }, stoppingToken); reply.EnsureSuccessStatusCode(); failures = 0; logger.LogInformation("Heartbeat delivered. Tally reachable={Reachable}.", reachable); } catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { failures = Math.Min(failures + 1, 5); logger.LogWarning("Cloud heartbeat failed. Reconnecting with bounded backoff."); }
-                if (reachable && electroMasterSync)
+                try { using var reply = await cloud.PostAsJsonAsync("/api/connector/heartbeat", new { company = config.Company, environment = config.Environment, tallyReachable = reachable, version = siteSlug == "aromazon" ? "1.8.0-company-dispatch" : "1.7.0-electro-charges", detail }, stoppingToken); reply.EnsureSuccessStatusCode(); failures = 0; logger.LogInformation("Heartbeat delivered. Tally reachable={Reachable}.", reachable); } catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { failures = Math.Min(failures + 1, 5); logger.LogWarning("Cloud heartbeat failed. Reconnecting with bounded backoff."); }
+                if (reachable && accountingEnabled && electroMasterSync)
                 {
                     try { await ProcessNextInvoiceJob(cloud, tally, config, stoppingToken); }
                     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or XmlException or InvalidOperationException or FormatException or JsonException or IOException or UnauthorizedAccessException)
@@ -552,6 +562,8 @@ static class ConnectorTests
     {
         var passed = 0; void Test(string name, Action action) { action(); Console.WriteLine("PASS " + name); passed++; }
         void MustThrow(Action a) { try { a(); } catch (Exception e) when (e is InvalidOperationException or XmlException) { return; } throw new Exception("Expected rejection."); }
+        Test("Test credentials require explicit diagnostics mode", () => { if (ConnectorMode.AllowsEnvironment("Test", false) || !ConnectorMode.AllowsEnvironment("Test", true) || ConnectorMode.AllowsEnvironment("Other", true)) throw new Exception("Environment policy failed"); });
+        Test("Diagnostics and Test credentials cannot process accounting", () => { if (ConnectorMode.AllowsAccounting("Test", true) || ConnectorMode.AllowsAccounting("Production", true) || ConnectorMode.AllowsAccounting("Test", false) || !ConnectorMode.AllowsAccounting("Production", false)) throw new Exception("Accounting mode policy failed"); });
         Test("XML escaping and exact company", () => { var xml = TallyXml.Parse(TallyXml.CompanyProbe("TEST & <Company>")); if (xml.Descendants("SVCURRENTCOMPANY").Single().Value != "TEST & <Company>") throw new Exception("Escaping failed"); });
         Test("XXE/DTD rejected", () => MustThrow(() => TallyXml.Parse("<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///test'>]><x>&e;</x>")));
         var dir = Path.Combine(Path.GetTempPath(), "dispatch-journal-test-" + Guid.NewGuid().ToString("N")); var j = new AttemptJournal(dir); var id = Guid.NewGuid().ToString();

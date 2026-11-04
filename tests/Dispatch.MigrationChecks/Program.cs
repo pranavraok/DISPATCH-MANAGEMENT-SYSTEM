@@ -1,0 +1,38 @@
+using Dispatch;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql;
+
+var connection = Environment.GetEnvironmentVariable("MigrationCheckConnection") ?? throw new Exception("Set the disposable local migration database connection.");
+var scope = new NpgsqlConnectionStringBuilder(connection);
+if (scope.Host != "127.0.0.1" || scope.Database != "aromazen_qr_migration_qa") throw new Exception("Use the explicitly named disposable loopback database only.");
+await using var db = new DispatchDb(new DbContextOptionsBuilder<DispatchDb>().UseNpgsql(connection).Options);
+var migrator = db.GetService<IMigrator>();
+await migrator.MigrateAsync("20261103120000_AromazenInventoryReceipt");
+db.Companies.AddRange(new Company { Id = "aromazon-india", Name = "AROMAZEN PVT LTD" }, new Company { Id = "demo", Name = "Electro Group of Industries" });
+db.Warehouses.AddRange(new Warehouse { Id = "main", CompanyId = "aromazon-india" }, new Warehouse { Id = "electro-main", CompanyId = "demo" });
+db.Manifests.AddRange(new Manifest { Id = "QA-AR-PACK", CompanyId = "aromazon-india", WarehouseId = "main", Name = "Migration QA" }, new Manifest { Id = "QA-E-PACK", CompanyId = "demo", WarehouseId = "electro-main", Name = "Electro migration isolation" });
+var lines = Json.Write(new[] { new ContentLine("QA-SKU", 20, "bottles") });
+Carton Box(string id, string state) => new() { Id = id, CompanyId = "aromazon-india", ManifestId = "QA-AR-PACK", WarehouseId = "main", State = state, Lines = lines };
+var generated = Box("QA-GENERATED", "PendingReceipt");
+var unlabelled = Box("QA-UNLABELLED", "PendingApproval");
+var verifiedLegacy = Box("QA-LEGACY", "Available"); verifiedLegacy.Attached = verifiedLegacy.Verified = true;
+var loaded = Box("QA-LOADED", "Loaded");
+var reserved = Box("QA-RESERVED", "Reserved");
+var electro = new Carton { Id = "QA-ELECTRO", CompanyId = "demo", ManifestId = "QA-E-PACK", WarehouseId = "electro-main", State = "Available", Lines = lines };
+db.Cartons.AddRange(generated, unlabelled, verifiedLegacy, loaded, reserved, electro);
+var snapshots = Json.Write(new[] { new { id = generated.Id, revision = 1 } });
+db.Labels.Add(new LabelJob { Id = "QA-LABEL", CompanyId = "aromazon-india", CartonSnapshots = snapshots, OperatorId = "migration-qa" });
+db.Audit.Add(new AuditEvent { Id = "QA-HISTORY", CompanyId = "aromazon-india", ActorId = "migration-qa", Action = "migrationFixture", EntityId = generated.Id, Data = "{}" });
+await db.SaveChangesAsync();
+db.ChangeTracker.Clear();
+await migrator.MigrateAsync();
+var cartons = await db.Cartons.ToDictionaryAsync(c => c.Id);
+void Check(bool condition, string name) { if (!condition) throw new Exception(name); Console.WriteLine("PASS " + name); }
+Check(cartons[generated.Id].State == "Available", "Previously generated current QR becomes available without a receiving scan");
+Check(cartons[unlabelled.Id].State == "PendingLabel", "Unlabelled plans remain outside available inventory");
+Check(cartons[verifiedLegacy.Id].State == "Available", "Existing verified legacy inventory stays available");
+Check(cartons[loaded.Id].State == "Loaded" && cartons[reserved.Id].State == "Reserved", "Loaded and reserved history remains unchanged");
+Check(cartons[electro.Id].State == "Available" && !cartons[electro.Id].Verified, "Electro carton state and flags remain unchanged");
+Check(cartons.Count == 6 && cartons.Values.All(c => c.Revision == 1) && (await db.Labels.SingleAsync()).CartonSnapshots == snapshots && await db.Audit.AnyAsync(a => a.Id == "QA-HISTORY"), "Carton IDs, revisions, label snapshots and audit history are preserved");

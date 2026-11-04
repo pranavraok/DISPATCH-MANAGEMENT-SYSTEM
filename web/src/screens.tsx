@@ -1958,13 +1958,13 @@ export function SetupScreen(ctx: Context) {
             </div>
           </form>
           <div className="panel-padding">
-            <h3>Electro production invoice mapping</h3>
-            <p>{m.contractValidated ? "The exact Electro company and invoice mapping are validated. Approved invoices will be posted to its connected Tally company." : "Validate the exact company, Sales ledger, GST ledgers, product HSN/GST data and customer states before enabling invoice posting."}</p>
-            <button className="primary" disabled={!may(ctx, "Billing") || !productionConnector || !ledger || !salesLedgers.includes(ledger) || voucherType !== "Sales" || expectedCompany !== "ELECTRO GROUP OF INDUSTRIES"} onClick={() => {
-              const confirmed = confirm("Confirm Tally is open to ELECTRO GROUP OF INDUSTRIES and that these are its production ledgers. Approved dispatch invoices will be entered into this company. This connection applies only to Electro Group.");
-              if (confirmed) void action(ctx, "validateTallyContract", { confirmedCompany: true, reason: "Operator confirmed Electro production company and exact Tally ledger mapping" });
+            <h3>{site?.slug === "aromazon" ? "AROMAZEN" : "Electro"} production invoice mapping</h3>
+            <p>{m.contractValidated ? "The exact company and invoice mapping are validated. Approved invoices will be posted to its connected Tally company." : "Validate the exact company, Sales ledger, GST ledgers, product HSN/GST data and customer states before enabling invoice posting."}</p>
+            <button className="primary" disabled={!may(ctx, "Billing") || !productionConnector || !ledger || !salesLedgers.includes(ledger) || voucherType !== "Sales" || (site?.slug === "aromazon" ? expectedCompany.length < 3 : expectedCompany !== "ELECTRO GROUP OF INDUSTRIES")} onClick={() => {
+              const confirmed = confirm(site?.slug === "aromazon" ? `Confirm Tally is open to ${expectedCompany} and these are AROMAZEN’s production ledgers. Approved invoices will be entered into that company.` : "Confirm Tally is open to ELECTRO GROUP OF INDUSTRIES and that these are its production ledgers. Approved dispatch invoices will be entered into this company. This connection applies only to Electro Group.");
+              if (confirmed) void action(ctx, "validateTallyContract", { confirmedCompany: true, reason: site?.slug === "aromazon" ? "Operator confirmed AROMAZEN production company and exact Tally ledger mapping" : "Operator confirmed Electro production company and exact Tally ledger mapping" });
             }}>
-              Validate Electro production invoice setup
+              Validate {site?.slug === "aromazon" ? "AROMAZEN" : "Electro"} production invoice setup
             </button>
             <p className="muted">{productionConnector ? `Connected company: ${productionConnector.expectedCompany}. Choose a Sales Accounts ledger from its latest sync.` : "Connect the Tally PC and wait for a fresh heartbeat and master sync first."}</p>
           </div>
@@ -1977,7 +1977,7 @@ export function SetupScreen(ctx: Context) {
             disabled={!may(ctx) || expectedCompany.length < 3}
             onClick={async () => {
               const r = await action(ctx, "pairConnector", {
-                name: "Electro Tally PC",
+                name: site?.slug === "aromazon" ? "AROMAZEN Tally PC" : "Electro Tally PC",
                 expectedCompany,
               });
               if (r) setPair(r);

@@ -17,6 +17,7 @@ public static class Permissions
 }
 public sealed partial class Operations(DispatchDb db, DeploymentScope deployment)
 {
+    bool Aromazen => deployment.Site?.Slug == "aromazon";
     User actor = null!;
     string company = "";
     static string NewId(string prefix) => prefix + Guid.NewGuid().ToString("N")[..20].ToUpperInvariant();
@@ -124,7 +125,7 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
             case "importTallyMasters":
                 {
                     Permissions.Require(actor, "Billing");
-                    Check(deployment.Site?.Slug == "electro", "Tally master import is enabled only on Electro Group's site.", 403);
+                    Check(deployment.PostingSupported, "Configure this site's exact Tally company before synchronizing masters.", 403);
                     var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company);
                     var connector = await db.Connectors.Where(x => x.CompanyId == company && !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany)
                         .OrderByDescending(x => x.MastersSyncedAt).FirstOrDefaultAsync();
@@ -366,9 +367,9 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                     var detail = TallyJobDetails.Read(job.Detail);
                     var payload = detail.Payload ?? throw new RuleException("This invoice has no retryable payload.", 409);
                     Check(!detail.RetryAuthorized, "A retry is already authorized.", 409);
-                    Check(payload.Company == "ELECTRO GROUP OF INDUSTRIES" && payload.Environment == "Production" &&
+                    Check(deployment.PostingSupported && payload.Company == deployment.ExactTallyCompany && payload.Environment == "Production" &&
                         (payload.Reference == "DISPATCH-" + job.Id || payload.Reference == "TEST-DISPATCH-" + job.Id),
-                        "This retry is restricted to the exact immutable Electro production invoice reference.", 409);
+                        "This retry is restricted to the exact immutable production invoice reference.", 409);
                     var shipment = await Get<Shipment>(job.ShipmentId);
                     await EnsureOrderOpenForShipment(shipment);
                     Check(shipment.InvoiceJobId == job.Id && shipment.OrderId is { Length: > 0 }, "Invoice job no longer matches its shipment.", 409);
@@ -402,8 +403,8 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                 }
             case "queueInvoice":
                 {
-                    Permissions.Require(actor, "Billing"); Check(deployment.Site?.Slug == "electro", "Tally invoice creation is enabled only for Electro Group.", 403); var s = await Get<Shipment>(Str(d, "id")); await EnsureOrderOpenForShipment(s); Check(s.InvoiceJobId == null, "A posting job already exists for this shipment."); var b = await db.Billings.SingleOrDefaultAsync(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Revision == s.BillingVersion); Check(s.LoadApproved && b is { Approved: true }, "Approve current billing and load first.");
-                    var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company); Check(mapping.ContractValidated && mapping.Pattern == "ElectroGSTInvoiceV1", "An administrator must validate the exact Tally company invoice mapping first.", 409);
+                    Permissions.Require(actor, "Billing"); Check(deployment.PostingSupported, "Configure this site's exact Tally company before invoicing.", 403); var s = await Get<Shipment>(Str(d, "id")); await EnsureOrderOpenForShipment(s); Check(s.InvoiceJobId == null, "A posting job already exists for this shipment."); var b = await db.Billings.SingleOrDefaultAsync(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Revision == s.BillingVersion); Check(s.LoadApproved && b is { Approved: true }, "Approve current billing and load first.");
+                    var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company); Check(mapping.ContractValidated && mapping.Pattern == deployment.InvoicePattern && (!Aromazen || mapping.ExpectedCompany == deployment.ExactTallyCompany), "An administrator must validate the exact Tally company invoice mapping first.", 409);
                     var connector = await db.Connectors.Where(x => x.CompanyId == company && !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany && x.LastSeen > DateTimeOffset.UtcNow.AddMinutes(-4)).OrderByDescending(x => x.LastSeen).FirstOrDefaultAsync(); Check(connector != null, "The paired Tally PC is not connected. Open Tally to the exact company and wait for a heartbeat.", 409);
                     var catalog = Json.Read<TallyMasterSnapshot>(connector!.MastersSnapshot); Check(catalog.Company == mapping.ExpectedCompany && catalog.Environment == "Production", "The current Tally master snapshot is for a different company or environment.", 409);
                     Check(catalog.Ledgers.Any(x => string.Equals(x.Name, mapping.SalesLedger, StringComparison.Ordinal) && string.Equals(x.Group, "Sales Accounts", StringComparison.OrdinalIgnoreCase)), $"The mapped sales ledger '{mapping.SalesLedger}' is missing from the latest Tally sync under Sales Accounts. Select a current production sales ledger in Settings and validate the mapping before queuing this invoice.", 409);
@@ -418,7 +419,7 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                         : "Production GST ledgers are not ready. Tally must contain one unambiguous output CGST, SGST and IGST ledger under Duties & Taxes; DEMO, purchase and input-tax ledgers are not used for customer invoices.", 409);
                     var job = new PostingJob { CompanyId = company, ShipmentId = s.Id, BillingId = b!.Id, State = "Queued" };
                     var payload = await BuildInvoicePayload(s, b!, mapping, catalog, job.Id, taxLedgers!);
-                    job.Detail = Json.Write(new TallyInvoiceJobDetail("Ready to send to the Electro company.", payload));
+                    job.Detail = Json.Write(new TallyInvoiceJobDetail(Aromazen ? "Ready to send to the configured AROMAZEN Tally company." : "Ready to send to the Electro company.", payload));
                     job.PayloadHash = Hash(Json.Write(payload)); db.Jobs.Add(job); s.InvoiceJobId = job.Id; s.State = "InvoiceBlocked"; return new { id = job.Id, state = job.State, message = "A Tally sales invoice was queued. No driver release occurs until Tally readback is confirmed." };
                 }
             case "saveMapping":
@@ -427,15 +428,15 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                 }
             case "validateTallyContract":
                 {
-                    Permissions.Require(actor, "Billing"); Check(deployment.Site?.Slug == "electro", "Only Electro's dedicated production site can validate this invoice contract.", 403); Check(Flag(d, "confirmedCompany"), "Confirm the exact Tally company."); RequireReason(d);
-            var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company); Check(mapping.ExpectedCompany == "ELECTRO GROUP OF INDUSTRIES" && mapping.VoucherType == "Sales" && mapping.SalesLedger.Length > 0, "Enter the exact company, Sales voucher type and sales ledger first.");
+                    Permissions.Require(actor, "Billing"); Check(deployment.PostingSupported, "Configure the deployment's exact Tally company before validating invoice setup.", 403); Check(Flag(d, "confirmedCompany"), "Confirm the exact Tally company."); RequireReason(d);
+            var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company); Check(mapping.ExpectedCompany == deployment.ExactTallyCompany && mapping.VoucherType == "Sales" && mapping.SalesLedger.Length > 0, "Enter the exact company, Sales voucher type and sales ledger first.");
                     var connector = await db.Connectors.Where(x => x.CompanyId == company && !x.Revoked && x.Environment == "Production" && x.ExpectedCompany == mapping.ExpectedCompany && x.LastSeen > DateTimeOffset.UtcNow.AddMinutes(-4)).OrderByDescending(x => x.LastSeen).FirstOrDefaultAsync(); Check(connector != null, "The Tally PC must be online with the exact company selected.", 409);
                     var catalog = Json.Read<TallyMasterSnapshot>(connector!.MastersSnapshot); Check(!string.IsNullOrWhiteSpace(catalog.CompanyState), "The company state must be available from Tally.", 409);
                     Check(catalog.Ledgers.Any(x => x.Name == mapping.SalesLedger && x.Group == "Sales Accounts"), "The selected sales ledger is not present under Sales Accounts in the current Tally snapshot.", 409);
                     Check(TallyTaxLedgerResolver.Resolve(catalog, demo: false) != null, "Production GST ledgers are not ready. Tally must contain one unambiguous output CGST, SGST and IGST ledger under Duties & Taxes; DEMO, purchase and input-tax ledgers are not valid for production.", 409);
                     Check(catalog.Items.All(x => !string.IsNullOrWhiteSpace(x.HsnCode) && x.GstRate is >= 0 and <= 100), "Production item GST setup is incomplete. The accountant must verify an HSN code and GST rate for every Tally stock item, then refresh masters.", 409);
                     Check(catalog.Items.Length > 0 && catalog.Ledgers.Any(x => x.Group == "Sundry Debtors" && !string.IsNullOrWhiteSpace(x.StateName)), "Tally must export stock classifications and customer states before invoice validation.", 409);
-                    mapping.ContractValidated = true; mapping.Pattern = "ElectroGSTInvoiceV1"; mapping.SyncedAt = DateTimeOffset.UtcNow; Audit("validateTallyContract", mapping.Id, new { mapping.ExpectedCompany, mapping.VoucherType, mapping.SalesLedger, connector = connector.Id, environment = "Production", reason = Str(d, "reason") }); return new { message = "Electro company invoice mapping is enabled for production." };
+                    mapping.ContractValidated = true; mapping.Pattern = deployment.InvoicePattern; mapping.SyncedAt = DateTimeOffset.UtcNow; Audit("validateTallyContract", mapping.Id, new { mapping.ExpectedCompany, mapping.VoucherType, mapping.SalesLedger, connector = connector.Id, environment = "Production", reason = Str(d, "reason") }); return new { message = Aromazen ? "AROMAZEN company invoice mapping is enabled for production." : "Electro company invoice mapping is enabled for production." };
                 }
             case "pairConnector":
                 {
@@ -553,7 +554,7 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
         var date = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, india).ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
         var total = taxable + cgst + sgst + igst;
         var reference = taxLedgerNames.Demo ? "TEST-DISPATCH-" + jobId : "DISPATCH-" + jobId;
-        var narrationParts = new List<string> { "Electro Dispatch invoice " + jobId };
+        var narrationParts = new List<string> { (Aromazen ? "AROMAZEN Dispatch invoice " : "Electro Dispatch invoice ") + jobId };
         if (!string.IsNullOrWhiteSpace(draft.Terms)) narrationParts.Add("Terms: " + draft.Terms.Trim());
         if (!string.IsNullOrWhiteSpace(draft.Reason)) narrationParts.Add("Price / terms note: " + draft.Reason.Trim());
         var finalPayload = new TallyInvoicePayload(jobId, mapping.ExpectedCompany, "Production", mapping.VoucherType, date,

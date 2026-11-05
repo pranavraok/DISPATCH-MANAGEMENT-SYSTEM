@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 // Only disposable loopback APIs. Never point this suite at company deployments.
 const config = JSON.parse(readFileSync(new URL('../.local/single-scan-qa.json', import.meta.url)));
+const signedLabels = new Map();
 let passed = 0;
 async function test(name, fn) { await fn(); passed++; console.log('PASS ' + name); }
 async function login(cfg, email = cfg.email, password = cfg.password) {
@@ -13,14 +14,14 @@ async function login(cfg, email = cfg.email, password = cfg.password) {
   const headers = { 'Content-Type': 'application/json', Cookie: response.headers.get('set-cookie').split(';')[0], 'X-CSRF-Token': data.csrf };
   const get = async path => { const r = await fetch(cfg.url + '/api' + path, { headers }); assert.equal(r.status, 200, await r.clone().text()); return r.json(); };
   const request = async (type, data, requestId = randomUUID()) => { const r = await fetch(cfg.url + '/api/commands', { method: 'POST', headers, body: JSON.stringify({ requestId, type, data: { ...data, workflow: cfg === config.aromazon ? 'StockFirst' : 'OrderFirst' } }) }); return { status: r.status, data: await r.json() }; };
-  const ok = async (...args) => { const r = await request(...args); assert.equal(r.status, 200, JSON.stringify(r.data)); return r.data; };
+  const ok = async (...args) => { const r = await request(...args); assert.equal(r.status, 200, JSON.stringify(r.data)); if (args[0] === "createLabels") for (const c of r.data.cartons ?? []) if (c.qr) signedLabels.set(`${c.id}:${c.revision}`, c.qr); return r.data; };
   return { get, request, ok, headers, cfg };
 }
 const a = await login(config.aromazon), e = await login(config.electro);
 const suffix = randomUUID().slice(0, 8);
 const current = () => a.get('/state');
-const stateOf = async id => (await current()).cartons.find(c => c.id === id);
-const qr = (c, revision = c.revision) => `K1|aromazon-india|${c.id}|${revision}`;
+const stateOf = async id => (await a.get('/state?search=' + encodeURIComponent(id))).cartons.find(c => c.id === id);
+const qr = (c, revision = c.revision) => signedLabels.get(`${c.id}:${revision}`) ?? `K1|aromazon-india|${c.id}|${revision}`;
 const company = 'AROMAZEN QA ONLY';
 const connector = await a.ok('pairConnector', { name: 'Isolated QA connector', expectedCompany: company });
 const connectorHeaders = { 'Content-Type': 'application/json', 'X-Connector-Id': connector.id, 'X-Connector-Key': connector.secret };
@@ -44,7 +45,7 @@ const initial = await current();
 const products = masters.items.map(item => initial.products.find(p => p.tallyId === item.nativeId));
 assert.ok(products.every(Boolean));
 const customer = initial.customers.find(c => c.tallyId === masters.ledgers[0].nativeId);
-const lines = products.map((p, i) => ({ sku: p.sku, quantity: i ? 8 : 12, unit: 'bottles' }));
+const lines = products.map((p, i) => ({ sku: p.sku, quantity: i ? 8 : 12, unit: 'bottles', productionBatch: 'QA-LOT-' + suffix }));
 const baseline = (await current()).packedInventory;
 let cartons;
 await test('saving carton contents creates plans but does not add inventory before QR generation', async () => {
@@ -148,6 +149,24 @@ await test('AROMAZEN validates its own mapping and queues an exact-company Tally
   const invalid = await connectorCall(`/jobs/${job.id}/result`, { payloadHash: claim.data.payloadHash, state: 'Confirmed', readback: { ...readback, company: 'WRONG COMPANY' } }); assert.equal(invalid.status, 409);
   const valid = await connectorCall(`/jobs/${job.id}/result`, { payloadHash: claim.data.payloadHash, state: 'Confirmed', readback }); assert.equal(valid.status, 200, JSON.stringify(valid.data));
   const invoice = await a.get('/documents/invoice/' + dispatch.id); assert.match(invoice.invoice.voucherNumber, /^SIMULATED-QA-NO-TALLY/);
+});
+await test('manufacturing batch trace reaches a confirmed invoice without exposing it in the QR',async()=>{
+ const trace=await a.get('/aromazen/batches?batch='+encodeURIComponent('QA-LOT-'+suffix));
+ assert.ok(trace.cartons.some(r=>r.history.some(h=>h.invoice==='SIMULATED-QA-NO-TALLY-'+suffix)));
+ assert.equal((await a.request('reopenStockLoad',{id:dispatch.id,physicalConfirmed:true,reason:'QA disallowed invoice correction'})).status,409);
+});
+await test('customer returns stay quarantined and cannot silently restock or exceed the original sale',async()=>{
+ let s=await current();const sh=s.shipments.find(sh=>sh.id===dispatch.id);
+ await a.ok('recordDocuments',{id:sh.id,print:'OperatorConfirmed',statutoryReference:'QA simulated documents',reason:'QA verified simulated invoice print'});
+ await a.ok('depart',{id:sh.tripId,physicalConfirmed:true});
+ const before=(await current()).packedInventory;
+ const ret=await a.ok('recordReturn',{shipmentId:sh.id,id:cartons[0].id,lines:[{sku:products[0].sku,quantity:1,unit:'bottles'}],condition:'Damaged',reason:'QA customer damaged return'});
+ assert.equal((await a.request('recordReturn',{shipmentId:sh.id,id:cartons[0].id,lines:[{sku:products[0].sku,quantity:12,unit:'bottles'}],condition:'Sealed',reason:'QA excessive return'})).status,400);
+ assert.equal((await a.request('returnDisposition',{id:ret.id,disposition:'Available',reason:'QA disallowed automatic restock'})).status,400);
+ await a.ok('returnDisposition',{id:ret.id,disposition:'AwaitingAccountingRestock',reason:'QA accountant must check credit and restock'});
+ assert.deepEqual((await current()).packedInventory,before);
+ const trace=await a.get('/aromazen/batches?batch='+encodeURIComponent('QA-LOT-'+suffix));
+ assert.ok(trace.cartons.some(r=>r.returns.some(returned=>returned.state==='AwaitingAccountingRestock')));
 });
 await test('Electro rejects AROMAZEN-only commands and still creates order-first label-ready cartons', async () => {
   assert.equal((await e.request('registerStockCartons', { name: 'Forbidden', warehouseId: 'main', groups: [] })).status, 403);

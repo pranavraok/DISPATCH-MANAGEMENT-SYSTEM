@@ -18,10 +18,11 @@ for (const [slug, workflow, companyName, shortName, tagline, email] of [
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (path: string) => {
       requests.push(path);
+      if(slug === "aromazon" && path === "/api/aromazen/dashboard") return new Response(JSON.stringify({inventory:{availableCartons:0,pendingLabels:0,heldCartons:0,loadedCartons:0,products:[]},pending:Object.fromEntries(["dispatches","bills","readyInvoices","tallyIssues"].map(key=>[key,{count:0,items:[]}])),recent:{orders:[]},tally:{status:"Setup required",lastSync:null,invoiceSetupReady:false}}));
       return new Response(JSON.stringify(path === "/api/auth/me" ? { user: { id: "admin", companyId: slug, name: "Admin", roles: ["Admin"] }, csrf: "qa" } : { ...sampleState(), workflow, orders: [], company: { id: slug, name: companyName } }));
     }));
     render(<App />);
-    await screen.findByRole("heading", { name: workflow === "OrderFirst" ? "Order first" : "Packed stock & dispatch" });
+    await screen.findByRole("heading", { name: workflow === "OrderFirst" ? "Order first" : "What do you want to do?" });
     expect(readWorkflow()).toBe(workflow);
     expect(brand.name).toBe(companyName);
     expect(requests.some(path => path.includes("workflow=" + workflow))).toBe(true);

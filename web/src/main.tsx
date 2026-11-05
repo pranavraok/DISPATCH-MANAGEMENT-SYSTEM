@@ -50,7 +50,7 @@ import {
   ReturnsScreen,
   ReportsScreen,
 } from "./screens";
-import { AromazenHome, AromazenPacking, AromazenInventory, AromazenDispatch, AromazenHistory } from "./aromazen";
+import { AromazenHome, AromazenPacking, AromazenInventory, AromazenDispatch, AromazenHistory, AromazenOrderTools, AromazenDispatchProgress, AromazenBatchFilter } from "./aromazen";
 import { hasPendingScan } from "./scanner";
 import { projectWork, readWorkScope, workKey, type WorkScope } from "./work";
 import { WorkSelector, ShipmentOverview } from "./work-ui";
@@ -158,7 +158,7 @@ const nav = [
   ["reports", "Reports", Activity],
   ["setup", "Settings", Settings],
 ] as const;
-const navigationLabel = (id: string, label: string) => site?.slug === "aromazon" ? ({ cartons: "Inventory", trips: "Dispatch", orders: "Order history", packing: "Pack & QR labels" }[id] ?? label) : label;
+const navigationLabel = (id: string, label: string) => site?.slug === "aromazon" ? ({ cartons: "Inventory", trips: "Dispatch", orders: "Past orders", packing: "Pack & QR labels" }[id] ?? label) : label;
 const connectionWarning = "Connection lost. The numbers may be old. Wait for confirmation before loading a box.";
 function savedPage() {
   const page = window.location.hash.slice(1);
@@ -396,8 +396,8 @@ export function App() {
     cartons: site?.slug === "aromazon" ? <AromazenInventory key={selectionKey} {...ctx} /> : <CartonScreen key={selectionKey} {...ctx} />,
     trips: site?.slug === "aromazon" ? <AromazenDispatch key={selectionKey} {...ctx} /> : <TripsScreen key={selectionKey} {...ctx} />,
     billing: <BillingScreen key={selectionKey} {...ctx} />,
-    returns: <ReturnsScreen key={selectionKey} {...ctx} />,
-    reports: <ReportsScreen {...ctx} />,
+    returns: <ReturnsScreen key={selectionKey} {...ctx} s={site?.slug === "aromazon" ? ctx.all : ctx.s} />,
+    reports: <ReportsScreen {...ctx} s={site?.slug === "aromazon" ? ctx.all : ctx.s} />,
     setup: <SetupScreen {...ctx} s={s} />,
   };
   return (
@@ -470,6 +470,7 @@ export function App() {
             </span>
           </div>
           <div className="top-actions">
+            {site?.slug === "aromazon" && ["trips", "billing", "orders"].includes(page) && <AromazenOrderTools {...ctx} />}
             <span className={"connection " + (sample ? "muted" : "")}>
               <span className={"dot " + (sample ? "amber" : "green")} />
               {sample ? "Sample workspace" : "Connected"}
@@ -512,9 +513,11 @@ export function App() {
               </button>
             </div>
           )}
-          {!simpleElectro && (sample || s.workflow === workflow) && <WorkSelector ctx={ctx} companyWide={page === "setup" || page === "orders"} />}
+          {site?.slug === "aromazon" && ["trips", "billing"].includes(page) && <AromazenDispatchProgress {...ctx} requireSelection={page === "billing"} />}
+          {site?.slug === "aromazon" && ["packing", "cartons"].includes(page) && <AromazenBatchFilter ctx={ctx} />}
+          {!simpleElectro && site?.slug !== "aromazon" && (sample || s.workflow === workflow) && <WorkSelector ctx={ctx} companyWide={page === "setup" || page === "orders"} />}
           {simpleElectro && page !== "overview" && <div className="dispatch-guide-return"><span>Dispatch steps</span><button className="text-link" onClick={() => navigate("overview")}>Back to next step <ArrowRight size={15} /></button></div>}
-          {s.workMissing && <div className="notice amber">This work was not found. Choose another packing list, trip, or shipment, or select Show all work.</div>}
+          {s.workMissing && <div className="notice amber">{site?.slug === "aromazon" ? "This record is unavailable. Choose another batch or order." : "This work was not found. Choose another packing list, trip, or shipment, or select Show all work."}</div>}
           {!sample && (s.workLoadedKey !== selectionKey || s.workflow !== workflow) ? <section className="panel panel-padding" role="status"><h2>{workError || "Opening your workflow…"}</h2>{workError && <button className="secondary" onClick={() => setWorkRetry((n) => n + 1)}>Try again</button>}</section> : <>
             {s.workComplete === false && work.kind !== "all" && <div className="notice amber">Showing up to 5,000 box details out of {number(s.workCartonTotal ?? 0)}. Choose a smaller shipment for a complete view.</div>}
             {screens[page]}

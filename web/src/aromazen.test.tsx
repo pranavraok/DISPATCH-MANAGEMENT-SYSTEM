@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { AromazenDispatch, AromazenInventory, AromazenPacking } from "./aromazen";
+import { AromazenHome, AromazenDispatch, AromazenInventory, AromazenPacking, AromazenOrderTools, AromazenHistory, AromazenDispatchProgress } from "./aromazen";
 import { configureSite } from "./site";
 import { workFixture } from "./work-fixture";
 import { labelPdf } from "./labels";
+import { AromazenPackingPresets, AromazenSuggestions } from "./aromazen-tools";
 import type { Context } from "./main";
 
 vi.mock("./labels", async importOriginal => ({ ...await importOriginal<typeof import("./labels")>(), labelPdf: vi.fn(async () => {}) }));
@@ -82,4 +83,69 @@ it("dispatch selects a customer before opening the scanning shipment", async () 
   fireEvent.click(screen.getByRole("button", { name: "Select customer & start dispatch" }));
   await waitFor(() => expect(ctx.run).toHaveBeenCalledWith("beginStockDispatch", expect.objectContaining({ customerId: "customer-one", reference: "PO-QA-001" })));
   expect(ctx.selectWork).toHaveBeenCalledWith({ kind: "shipment", id: "SHIP-NEW" });
+});
+
+it("opens another order in a separate tab without changing the current selection", () => {
+  const ctx=context(); const open=vi.spyOn(window,"open").mockReturnValue(null);
+  render(<AromazenOrderTools {...ctx} />);
+  fireEvent.click(screen.getByRole("button",{name:"Start new order"}));
+  fireEvent.click(screen.getByRole("button",{name:"Open in new tab"}));
+  expect(open).toHaveBeenCalledWith(expect.stringContaining("newOrder=1#trips"),"_blank","noopener,noreferrer");
+  expect(ctx.selectWork).not.toHaveBeenCalled(); expect(ctx.run).not.toHaveBeenCalled();
+});
+it("keeps accepted work on the server while starting another order in the same tab", () => {
+  const ctx=context(); render(<AromazenOrderTools {...ctx} />);
+  fireEvent.click(screen.getByRole("button",{name:"Start new order"}));
+  fireEvent.click(screen.getByRole("button",{name:"Keep saved work & start new order"}));
+  expect(ctx.selectWork).toHaveBeenCalledWith({kind:"all"});expect(ctx.navigate).toHaveBeenCalledWith("trips");expect(ctx.run).not.toHaveBeenCalled();
+});
+it("blocks changing orders while a scan result is unresolved", () => {
+  const ctx=context();localStorage.setItem("aromazen-uncertain-scan-v2",JSON.stringify({envelope:{requestId:"pending-qa"}}));
+  render(<AromazenOrderTools {...ctx} />);expect((screen.getByRole("button",{name:"Start new order"}) as HTMLButtonElement).disabled).toBe(true);
+});
+it("dispatch progress uses stock-first steps without packing or label generation", () => {
+  render(<AromazenDispatchProgress {...context()} />);
+  expect(screen.getByRole("navigation",{name:"Dispatch progress"})).toBeTruthy();expect(screen.getByText("Scan cartons")).toBeTruthy();expect(screen.queryByText("Labels")).toBeNull();
+});
+it("history displays full server totals and filters on the server", async () => {
+  const ctx=context();const paths:string[]=[];
+  vi.stubGlobal("fetch",vi.fn(async path=>{paths.push(String(path));return new Response(JSON.stringify({total:1,orders:[{order:{id:"history-qa",reference:"QA-HISTORY",customerId:ctx.all.customers[0].id,destination:"Karnataka",createdAt:new Date().toISOString()},shipments:[{shipment:{id:"shipment-qa",loadApproved:false},stage:"Scanning",scannedCartons:240,snapshot:JSON.stringify({lines:[{sku:"SND01",quantity:4800,unit:"bottles"}]}),billTotal:48000}]}]}));}));
+  render(<AromazenHistory {...ctx} />);await screen.findByText(/240 cartons scanned/);
+  fireEvent.click(screen.getByText("Product quantities in this dispatch"));expect(screen.getByText(/4,800 bottles/)).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox",{name:"Search customer, order or destination"}),{target:{value:"Mysuru"}});
+  await waitFor(()=>expect(paths.some(p=>p.includes("search=Mysuru"))).toBe(true));
+});
+
+it("does not show misleading order progress on Billing without a selected shipment", () => {
+  render(<AromazenDispatchProgress {...context()} requireSelection />);
+  expect(screen.queryByRole("navigation", { name: "Dispatch progress" })).toBeNull();
+});
+
+it("Home keeps three quick tasks while restoring stock, pending work, recent orders and Tally", async () => {
+  const ctx=context();ctx.work={kind:"all"};
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({
+    inventory:{availableCartons:240,pendingLabels:8,heldCartons:3,loadedCartons:12,products:[{sku:"SND01",name:"Sandal bottles",unit:"bottles",quantity:4800,cartons:240}]},
+    pending:{dispatches:{count:7,items:[{shipmentId:"HOME-SHIP",customer:"Mysuru Store",reference:"PO-HOME"}]},bills:{count:2,items:[]},readyInvoices:{count:1,items:[]},tallyIssues:{count:1,items:[]}},
+    tally:{status:"Disconnected",invoiceSetupReady:false,lastSync:null},recent:{orders:[{order:{id:"HOME-ORDER",reference:"PO-HOME",state:"Open"},customerName:"Mysuru Store",shipments:[{shipment:{id:"HOME-SHIP",loadApproved:false},stage:"Scanning",scannedCartons:12}]}]},updatedAt:new Date().toISOString()
+  }))));
+  render(<AromazenHome {...ctx}/>);await screen.findByText("4,800 bottles");
+  expect(screen.getByRole("navigation",{name:"Main tasks"}).querySelectorAll("button")).toHaveLength(3);
+  expect(screen.getByText("Cartons on hold")).toBeTruthy();expect(screen.getByText("Bills to approve")).toBeTruthy();expect(screen.getByText("Invoices to check")).toBeTruthy();
+  expect(screen.getByText("Disconnected")).toBeTruthy();expect(screen.getByRole("heading",{name:"Recent orders"})).toBeTruthy();
+  expect(screen.getByText("Help with these numbers").closest("details")?.open).toBe(false);
+  fireEvent.click(screen.getAllByRole("button",{name:"Resume"})[0]);expect(ctx.selectWork).toHaveBeenCalledWith({kind:"shipment",id:"HOME-SHIP"});expect(ctx.navigate).toHaveBeenCalledWith("trips");
+});
+
+it("reusing a saved packing mix clears manufacturing batches and does not create stock", async () => {
+ const ctx=context(),apply=vi.fn();const preset={id:"PRESET-QA",name:"Rose 20",groups:JSON.stringify([{marking:"Rose",count:2,lines:[{sku:"SND01",quantity:20,unit:"bottles",productionBatch:"OLD-LOT"}]}])};
+ vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify([preset]))));
+ render(<AromazenPackingPresets ctx={ctx} groups={[]} onApply={apply}/>);fireEvent.click(screen.getByRole("button",{name:"Saved packing mixes"}));fireEvent.click(await screen.findByRole("button",{name:"Use mix"}));
+ expect(apply).toHaveBeenCalledWith([{marking:"Rose",count:"2",lines:[{sku:"SND01",quantity:"20",productionBatch:""}]}]);expect(ctx.run).not.toHaveBeenCalled();
+});
+it("carton assistance is optional and never reserves stock", async () => {
+ const ctx=context();vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({complete:false,cartons:[],remaining:[{sku:"SND01",quantity:5,unit:"bottles"}],searchLimited:false}))));
+ render(<AromazenSuggestions ctx={ctx} shipment={{warehouseId:"main",customerId:"customer-qa"}}/>);
+ expect(screen.queryByRole("button",{name:"Find suitable cartons"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Help me choose cartons"}));fireEvent.change(screen.getByRole("combobox",{name:"Requested product 1"}),{target:{value:"SND01"}});fireEvent.click(screen.getByRole("button",{name:"Find suitable cartons"}));
+ await screen.findByText("No whole-carton match found.");expect(ctx.run).not.toHaveBeenCalled();expect(screen.getByText(/Still needed: 5 bottles/)).toBeTruthy();
 });

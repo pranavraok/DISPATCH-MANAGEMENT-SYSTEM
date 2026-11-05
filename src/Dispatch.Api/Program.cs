@@ -107,8 +107,18 @@ app.MapGet("/api/state", async (HttpContext ctx, DispatchDb db, Operations ops, 
         postingEnabled
     });
 }).RequireRateLimiting("api");
+if (site?.Slug == "aromazon") {
+ app.MapGet("/api/aromazen/stock-checks/export",async (string id,HttpContext ctx,DispatchDb db,Operations ops)=>{var(u,_)=await Auth.User(ctx,db);return Results.File(await ops.ExportStockCheck(u,id),"text/csv","aromazen-stock-differences.csv");});
+ app.MapGet("/api/aromazen/stock-checks",async (string? id,HttpContext ctx,DispatchDb db,Operations ops)=>{var(u,_)=await Auth.User(ctx,db);return Results.Ok(await ops.ReadStockChecks(u,id));});
+ app.MapGet("/api/aromazen/presets",async (HttpContext ctx,DispatchDb db,Operations ops)=>{var(u,_)=await Auth.User(ctx,db);return Results.Ok(await ops.ReadPackingPresets(u));});
+ app.MapPost("/api/aromazen/suggestions",async (SuggestCartons input,HttpContext ctx,DispatchDb db,Operations ops)=>{var(u,_)=await Auth.User(ctx,db,true);return Results.Ok(await ops.SuggestAvailableCartons(u,input));}).RequireRateLimiting("api");
+ app.MapGet("/api/aromazen/batches",async(string batch,int? page,HttpContext ctx,DispatchDb db,Operations ops)=>{var(u,_)=await Auth.User(ctx,db);return Results.Ok(await ops.TraceProductionBatch(u,batch,page??0));});
+ app.MapGet("/api/aromazen/cartons/{id}",async(string id,HttpContext ctx,DispatchDb db,Operations ops)=>{var(u,_)=await Auth.User(ctx,db);return Results.Ok(await ops.ReadCartonDetails(u,id));});
+}
+if (site?.Slug == "aromazon") app.MapGet("/api/aromazen/dashboard", async (HttpContext ctx, DispatchDb db, Operations ops) => { var (u, _) = await Auth.User(ctx, db); return Results.Ok(await ops.ReadDashboard(u)); }).RequireRateLimiting("api");
+if (site?.Slug == "aromazon") app.MapGet("/api/aromazen/orders", async (HttpContext ctx, DispatchDb db, Operations ops, string? search, string? status, int? page) => { var (u, _) = await Auth.User(ctx, db); return Results.Ok(await ops.ReadDispatchHistory(u, search, status, page ?? 0)); });
 app.MapGet("/api/cartons/lookup", async (string qr, HttpContext ctx, DispatchDb db, Operations ops) => { var (u, _) = await Auth.User(ctx, db); return Results.Ok(await ops.LookupCarton(u, qr)); }).RequireRateLimiting("api");
-app.MapPost("/api/commands", async (Command command, HttpContext ctx, DispatchDb db, Operations ops) => { var (u, _) = await Auth.User(ctx, db, true); return Results.Ok(await ops.Execute(u, command)); }).RequireRateLimiting("api");
+app.MapPost("/api/commands", async (Command command, HttpContext ctx, DispatchDb db, Operations ops) => { var (u, session) = await Auth.User(ctx, db, true); return Results.Ok(await ops.Execute(u, command, site?.Slug == "aromazon" ? session.Id : null)); }).RequireRateLimiting("api");
 app.MapGet("/api/work/{kind}/{id}", WorkQueries.Read).RequireRateLimiting("api");
 app.MapGet("/api/requests/{id}", async (string id, HttpContext ctx, DispatchDb db) => { var (u, _) = await Auth.User(ctx, db); var r = await db.Requests.SingleOrDefaultAsync(x => x.Id == id && x.CompanyId == u.CompanyId && x.ActorId == u.Id); return r == null ? Results.NotFound(new { state = "Unknown", message = "Original request may still be in flight. Retry only the same envelope and request ID." }) : Results.Content(r.Response, "application/json"); });
 app.MapPost("/api/maintenance/outbox", async (HttpContext ctx, DispatchDb db) => { var (u, _) = await Auth.User(ctx, db, true); Permissions.Require(u); return Results.Ok(new { events = await OutboxWorker.Drain(db), delivery = "Audit-feed polling. This does not claim delivery to email, Tally or printers." }); });

@@ -19,6 +19,20 @@ Production pairing/heartbeat does not itself approve accounting mappings. Confir
 
 ## Verification already performed
 
-API and frontend builds passed. The revision passed 22 isolated API checks, nine AROMAZEN screen tests, six migration-preservation checks and headless Chrome acceptance covering actual QR PDF download, reprints, inventory, dispatch, duplicate protection, bill totals and desktop/mobile layouts. The full frontend suite retains the same 15 pre-existing failures as the untouched source, with no new failures. Automated Tally readback was simulated; physical scanner/printing and real accounting acceptance remain separate.
+API and frontend builds passed. The latest revision passed 55 isolated API checks, 18 focused AROMAZEN screen tests, the earlier six migration-preservation checks and headless Chrome acceptance covering actual QR PDF download, reprints, inventory, dispatch, duplicate protection, bill totals and desktop/mobile layouts. The full frontend suite retains the same 15 pre-existing failures as the untouched source, with no new failures. Automated Tally readback was simulated; physical scanner/printing and real accounting acceptance remain separate.
 
 Source publication does not deploy either company. Local development credentials, protected connector keys, private environment files, database dumps and preview runtime files are excluded from this release.
+
+
+## Additional local revisions: security and dispatch UI
+
+The new migration `20261105090000_AromazenSecureDispatch` creates only additional security tables; it does not rewrite Electro or existing carton/order/invoice records. Run migrations before switching traffic. Authorized staff can sign in and scan directly. Browser registration and device approval have been removed; role checks, signed QR validation, duplicate protection and billing approvals remain. No paid QR service or app-store account is required. HTTPS is required for phone camera scanning and secure cookies.
+
+The database now contains durable QR signing keys and token mappings: preserve them in backups. Existing labels continue working until a signed replacement is issued for that carton revision. Replace old physical labels after issuing signed replacements. Reprinting a signed label preserves its token and does not add inventory.
+
+The AROMAZEN-only PWA assets live in `web/public/aromazen*`; publish them alongside the frontend. The service worker never caches authenticated data or dispatch requests. Deploy only the AROMAZEN project, preserving its existing database and exact-company Tally configuration. The redesigned dispatch and security changes do not enable production Tally posting by themselves.
+
+
+## Optional factory productivity tools
+
+Apply `20261105100000_AromazenProductivity` before switching the API/frontend. It adds AROMAZEN-scoped packing presets, separate manufacturing-batch references and stock-count snapshots. Existing carton lines, Tally batch/godown contracts and Electro workflows are preserved. Manufacturing metadata is written in one transaction with carton creation/revision. Historical blank manufacturing batches are not inferred. Suggestions and stock checks never reserve/dispatch stock or post to Tally. See `docs/AROMAZEN-OPERATIONS.md` for correction, return, backup and real-hardware/accountant acceptance instructions. The local backup/restore test is not proof that hosted automated backups are configured; the project/database owner must configure those before go-live.

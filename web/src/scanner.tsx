@@ -1,3 +1,4 @@
+import { PhoneScanner } from "./phone-scanner";
 import { useEffect, useRef, useState } from "react";
 import {
   Volume2,
@@ -21,13 +22,13 @@ const pendingKey = "electro-group-uncertain-scan-v1";
 const legacyPendingKey = "kriyantha-uncertain-scan-v1";
 export function hasPendingScan() {
   try {
-    const saved = JSON.parse(localStorage.getItem(pendingKey) ?? localStorage.getItem(legacyPendingKey) ?? "null");
+    const saved = JSON.parse(localStorage.getItem(site?.slug === "aromazon" ? "aromazen-uncertain-scan-v2" : pendingKey) ?? localStorage.getItem(legacyPendingKey) ?? "null");
     return !!saved?.envelope?.requestId;
   } catch { return false; }
 }
 export function pendingScanWorkflow(): Workflow {
   try {
-    const saved = JSON.parse(localStorage.getItem(pendingKey) ?? localStorage.getItem(legacyPendingKey) ?? "null");
+    const saved = JSON.parse(localStorage.getItem(site?.slug === "aromazon" ? "aromazen-uncertain-scan-v2" : pendingKey) ?? localStorage.getItem(legacyPendingKey) ?? "null");
     return saved?.envelope?.data?.workflow === "OrderFirst" ? "OrderFirst" : "StockFirst";
   } catch { return "StockFirst"; }
 }
@@ -35,6 +36,7 @@ export function DispatchScanScreen(ctx: Context) {
   const { all: s, sample, run, refresh } = ctx;
   const stockDispatch = site?.slug === "aromazon";
   const guided = ctx.workflow === "OrderFirst" || stockDispatch;
+  const [camera, setCamera] = useState(false);
   const [shipmentId, setShipmentId] = useState(ctx.work.kind === "shipment" ? ctx.work.id : ""),
     [station, setStation] = useState(() => readWorkstation(s.company.id).station),
     [sessionId, setSessionId] = useState(""),
@@ -46,7 +48,7 @@ export function DispatchScanScreen(ctx: Context) {
     [events, setEvents] = useState<Row[]>([]),
     [pending, setPending] = useState<Pending | null>(() => {
       try {
-        const saved = localStorage.getItem(pendingKey) ?? localStorage.getItem(legacyPendingKey);
+        const saved = localStorage.getItem(site?.slug === "aromazon" ? "aromazen-uncertain-scan-v2" : pendingKey) ?? localStorage.getItem(legacyPendingKey);
         return JSON.parse(saved ?? "null");
       } catch {
         return null;
@@ -182,13 +184,21 @@ export function DispatchScanScreen(ctx: Context) {
     }
   }
   function store(p: Pending | null) {
-    if (p) localStorage.setItem(pendingKey, JSON.stringify(p));
-    else { localStorage.removeItem(pendingKey); localStorage.removeItem(legacyPendingKey); }
+    if (p) localStorage.setItem(site?.slug === "aromazon" ? "aromazen-uncertain-scan-v2" : pendingKey, JSON.stringify(p));
+    else { localStorage.removeItem(site?.slug === "aromazon" ? "aromazen-uncertain-scan-v2" : pendingKey); localStorage.removeItem(legacyPendingKey); }
     setPending(p);
   }
   async function submit(qr: string) {
+    if (stockDispatch && navigator.locks) {
+      await navigator.locks.request("aromazen-dispatch-scan:" + s.company.id, { ifAvailable: true }, async lock => {
+        if (!lock) { setError("Another tab is saving a scan. Wait for its result before scanning here."); return; }
+        await submitUnlocked(qr);
+      });
+    } else await submitUnlocked(qr);
+  }
+  async function submitUnlocked(qr: string) {
     if (!qr.trim()) return;
-    if (inflight.current || pending) {
+    if (inflight.current || pending || (stockDispatch && hasPendingScan())) {
       setError(
         "Scanning paused. Resolve the pending scan; no further input is accepted.",
       );
@@ -245,6 +255,11 @@ export function DispatchScanScreen(ctx: Context) {
       sound(r.outcome, r.message);
       await refresh().catch(() => setError("This result is saved. Refresh the page to update the totals before continuing."));
     } catch (e) {
+      if (stockDispatch && e instanceof api.ApiError && [400, 401, 403, 409, 410].includes(e.status)) {
+        store(null); setStarted(false);
+        setResult({ outcome: "Rejected", message: e.message }); setError(e.message);
+        return;
+      }
       setResult({
         outcome: "Pending",
         message:
@@ -335,6 +350,8 @@ export function DispatchScanScreen(ctx: Context) {
               {guided ? "Start scanning" : "Start scanning & turn on voice"}
         </button>
       </section>
+      {stockDispatch && <div className="button-row"><strong>Primary: 2D scanner</strong><button className="secondary" disabled={!started || !!pending || sample || !!shipment?.loadApproved} onClick={() => setCamera(true)}>Use phone camera</button><span>Phone scanning is optional.</span></div>}
+      {camera && <PhoneScanner close={() => setCamera(false)} onScan={qr => { setCamera(false); void submit(qr); }} />}
       <div className="scanner-layout">
         <section className="panel scanner-main">
           <div className="scanner-top">

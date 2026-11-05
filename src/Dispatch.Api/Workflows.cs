@@ -114,6 +114,7 @@ public sealed partial class Operations
 
         var shipments = await db.Shipments.Where(x => x.CompanyId == company && x.OrderId == order.Id && x.State != "Cancelled").ToListAsync();
         var shipmentIds = shipments.Select(x => x.Id).ToArray();
+        if(Aromazen) Check(!shipments.Any(s=>s.LoadApproved || s.InvoiceJobId!=null || s.State=="Departed") && !await db.Allocations.AnyAsync(a=>a.CompanyId==company && shipmentIds.Contains(a.ShipmentId) && a.Active && a.State=="Loaded"),"Unload all cartons before cancelling. Approved or invoiced loads need controlled correction or accountant review.",409);
         var jobs = shipmentIds.Length == 0 ? [] : await db.Jobs.Where(x => x.CompanyId == company && shipmentIds.Contains(x.ShipmentId)).ToListAsync();
         var cancelledJobs = 0;
         foreach (var job in jobs.Where(x => x.State is "Queued" or "Claimed"))

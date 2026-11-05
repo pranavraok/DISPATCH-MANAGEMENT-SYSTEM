@@ -1,6 +1,7 @@
 import { parse, type Row, type Line } from "./domain";
 import { cartonQr, shortReference } from "./codes";
 import { brand } from "./brand";
+import { site } from "./site";
 export async function labelPdf(cartons: Row[], company: string, test = false) {
   const [{ default: QRCode }, { jsPDF }] = await Promise.all([
     import("qrcode"),
@@ -18,7 +19,7 @@ export async function labelPdf(cartons: Row[], company: string, test = false) {
       c = selected[i];
     pdf.setDrawColor(190);
     pdf.roundedRect(x, y, 90, 50, 1, 1);
-    const payload = cartonQr(c as { id: string; companyId: string; revision: number });
+    const payload = site?.slug === "aromazon" && c.qr ? c.qr : cartonQr(c as { id: string; companyId: string; revision: number });
     const qr = await QRCode.toDataURL(
       payload,
       { errorCorrectionLevel: "M", margin: 4, width: 400 },

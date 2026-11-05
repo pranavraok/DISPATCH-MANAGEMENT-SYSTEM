@@ -10,6 +10,11 @@ async function start() {
     if (!response.ok) throw Error("Company configuration unavailable.");
     const company = await response.json();
     configureSite(company);
+    if (company?.slug === "aromazon") {
+      const manifest=document.createElement("link"); manifest.rel="manifest"; manifest.href="/aromazen.webmanifest"; document.head.appendChild(manifest);
+      const icon=document.createElement("link"); icon.rel="apple-touch-icon"; icon.href="/aromazen-icon-192.png"; document.head.appendChild(icon);
+      if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/aromazen-sw.js").catch(() => {});
+    }
     document.documentElement.dataset.company = company?.slug ?? "electro";
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", company?.slug === "aromazon" ? "#3d2344" : "#102a46");
     document.title = brand.name + " | Dispatch";

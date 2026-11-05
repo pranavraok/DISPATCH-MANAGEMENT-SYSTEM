@@ -50,3 +50,30 @@ The preview includes example cartons and customer dispatches created by browser 
 ## Later deployment
 
 The deployment owner must target only the existing AROMAZEN project and database; see DEPLOY-AROMAZEN-REVISED-WORKFLOW.md. Keep `DispatchSite=aromazon` and its exact server-side Tally company mapping. Preserve Electro's deployment and configuration. Review migrations and back up AROMAZEN's data before deployment. Production connection work remains separately documented in the production-connection worktree.
+
+
+## Guided dispatch, signed labels and staff sign-in (local review)
+
+Dispatch follows Customer & order → Scan cartons → Review & approve bill → Tally invoice. Packing and QR generation remain outside this sequence. The top-right Start new order action opens a new tab or keeps the current server-saved work while starting another order. Accepted scans remain allocated. Unsubmitted bill edits must be saved first. Order selection lives in each tab's URL. Loading sessions are bound to the signed-in session and shipment, so opening a different order does not deactivate the first order's loading session.
+
+Past Orders has server-side search, status filtering and 20-order pagination. Carton counts come from all shipment allocations; product quantities come from the current complete bill snapshot, independent of the inventory page size.
+
+New AROMAZEN labels contain `AZ2.<128-bit random token>.<128-bit truncated HMAC-SHA256 signature>`. Token-to-carton/revision mapping and the durable per-company signing key stay in the database. Back up all three new security tables with the database. No signing secret is sent to the browser. A reprint returns the same token/signature; a content revision requires a new label. Existing unsigned labels remain accepted only until a signed label is issued for that carton revision; after that, compact and K1 reconstructions are rejected. Replace the physical old label when upgrading it to a signed label. Printed product/group text is unchanged pending a separate decision.
+
+Authorized staff sign in and scan immediately. Browser registration and administrator device approval have been removed. Dispatch roles and exact-company checks still apply. Loading sessions are bound to the authenticated login session and shipment, so another login cannot reuse them. The audit records the operator, login session and time. Existing device-registration history is retained in the database but is no longer used to grant or restrict access.
+
+The 2D keyboard-wedge scanner is primary. Optional phone scanning uses a camera QR decoder in the same portal. Each camera reading stops the camera and submits exactly one scan through the same server checks. The camera requires HTTPS or localhost and user camera permission. The installable PWA uses company-specific icons/manifest and registers only on AROMAZEN. It does not cache authenticated data or queue offline scans; a network connection is required for dispatch. The home-screen installation flow depends on the phone/browser.
+
+A browser lock serializes scans across tabs where supported, with shared uncertain-scan recovery and server transaction/duplicate checks. Physical scanners send input only to the focused tab. A copied printed QR is not proof of possession of the carton; authorized staff must still check the physical carton.
+
+Validation: `tests/aromazen-security.mjs` runs only against disposable loopback QA APIs. `tests/aromazen-qr-inventory.mjs` requires no device approval and exercises the inventory, bill and Electro-isolation regressions. Neither suite creates a real Tally voucher. UI tests cover independent order tabs, pending-scan switching protection, stock-first progress and full history totals. Real paper/scanner and phone hardware acceptance remain a separate check.
+
+
+## Complete Home dashboard
+
+The three main tasks remain at the top. Home also shows full ready/pending-label/held/loaded carton totals, product quantities and carton counts, unfinished dispatches, current bills awaiting approval, approved bills ready for Tally, invoice issues, recent orders and exact-company Tally connectivity/last master sync. Summary queries run against the whole company rather than the current page or selected batch. Resume and Review open the specific shipment directly. Long explanations are under Help. History/dashboard responses contain current bill line summaries, not full per-carton billing snapshots. Home is read-only and creates no extra production steps; browser approval remains removed.
+
+
+## Optional productivity tools
+
+See [Factory operations](AROMAZEN-OPERATIONS.md). Saved packing mixes reduce repeated entry; manufacturing batch references are captured separately from Tally batch allocation; carton suggestions are read-only and advisory; physical stock checks report differences without moving stock; exceptional corrections and cancellations keep audit history. The final local regression run passed 55 API checks and 18 focused UI tests, plus real Chrome acceptance of the optional tools and a PostgreSQL backup/restore with matching operational counts and signing keys. The full frontend suite retains its 15 pre-existing failures, with no additional failures. Real hardware/accountant and hosted backup acceptance remain deployment prerequisites. Weight verification is excluded.

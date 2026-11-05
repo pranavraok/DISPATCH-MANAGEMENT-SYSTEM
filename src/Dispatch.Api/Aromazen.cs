@@ -20,11 +20,14 @@ public sealed partial class Operations
         var manifest = new Manifest { Id = NewId("PK-"), CompanyId = company, Workflow = workflow, WarehouseId = input.WarehouseId, Name = input.Name, Notes = input.Notes ?? "", Groups = Json.Write(input.Groups), State = "Approved", Version = 2 };
         db.Manifests.Add(manifest);
         var cartons = new List<Carton>();
-        foreach (var group in input.Groups)
+        for (var groupIndex=0; groupIndex<input.Groups.Length; groupIndex++)
         {
+            var group=input.Groups[groupIndex];
             var contents = Json.Write(await Normalize(group.Lines));
-            for (var i = 0; i < group.Count; i++)
-                cartons.Add(new Carton { Id = NewId("CT-"), CompanyId = company, ManifestId = manifest.Id, WarehouseId = manifest.WarehouseId, State = "PendingLabel", Marking = group.Marking, Lines = contents });
+            for (var i = 0; i < group.Count; i++) {
+                var carton=new Carton { Id = NewId("CT-"), CompanyId = company, ManifestId = manifest.Id, WarehouseId = manifest.WarehouseId, State = "PendingLabel", Marking = group.Marking, Lines = contents };
+                cartons.Add(carton);await CaptureProductionBatches(carton,d.GetProperty("groups")[groupIndex].GetProperty("lines"));
+            }
         }
         db.Cartons.AddRange(cartons);
         return new { id = manifest.Id, cartons, message = "Carton contents saved. Generate their QR labels to add the cartons and products to inventory." };
@@ -36,6 +39,7 @@ public sealed partial class Operations
         Check(deployment.Site == null || deployment.Site.CompanyId == company, "Wrong company.", 403);
         workflow = deployment.Site?.Workflow ?? Workflows.StockFirst;
         var carton = await ResolveQr(qr);
+        if(Aromazen) return new {carton,lines=Json.Read<ContentLine[]>(carton.Lines),productionBatches=await db.Database.SqlQuery<ProductionBatchRow>($"""SELECT "CartonId","Revision","Sku","Batch" FROM "AromazenProductionBatches" WHERE "CompanyId"={company} AND "CartonId"={carton.Id} AND "Revision"={carton.Revision}""").ToArrayAsync()};
         return new { carton, lines = Json.Read<ContentLine[]>(carton.Lines) };
     }
 

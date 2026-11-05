@@ -51,9 +51,9 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
     }
     void RequireReason(JsonElement d) => Check(Str(d, "reason").Length >= 3, "A meaningful reason is required.");
     void Audit(string action, string entity, object data) { var shared = new[] { "saveProduct", "saveCustomer", "saveMapping", "validateTallyContract", "pairConnector", "revokeConnector", "createUser", "productMapping", "customerMapping", "importTallyMasters" }.Contains(action); var e = new AuditEvent { CompanyId = company, Workflow = shared ? null : workflow, ActorId = actor.Id, Action = action, EntityId = entity, Data = Json.Write(data) }; db.Audit.Add(e); db.Outbox.Add(new OutboxEvent { CompanyId = company, AuditId = e.Id }); }
-    public async Task<object> Execute(User user, Command cmd)
+    public async Task<object> Execute(User user, Command cmd, string? loginSessionId = null)
     {
-        actor = user; company = user.CompanyId;
+        actor = user; company = user.CompanyId; dispatchSession = loginSessionId ?? user.Id;
         Check(deployment.Site == null || company == deployment.Site.CompanyId, "Account unavailable on this company's website.", 401);
         workflow = deployment.Site?.Resolve(Str(cmd.Data, "workflow")) ?? Workflows.Parse(Str(cmd.Data, "workflow"));
         Check(Guid.TryParse(cmd.RequestId, out _), "Request ID must be a UUID.");
@@ -65,15 +65,22 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
         var old = await db.Requests.SingleOrDefaultAsync(x => x.CompanyId == company && x.Id == cmd.RequestId);
         if (old != null) { Check(old.ActorId == actor.Id && old.Fingerprint == fingerprint, "Request ID was already used with different input or operator.", 409); return Json.Read<JsonElement>(old.Response); }
         var result = await Handle(cmd.Type, cmd.Data);
+        if(Aromazen) await FlushProductionBatches();
         var savedResponse = cmd.Type == "pairConnector" ? Json.Write(new { message = "Pairing already created. Credential is shown only on the original response. Revoke and pair again if it was lost." }) : Json.Write(result);
         db.Requests.Add(new RequestRecord { Id = cmd.RequestId, CompanyId = company, ActorId = actor.Id, Fingerprint = fingerprint, Response = savedResponse });
-        if (cmd.Type != "pairConnector" && cmd.Type != "createUser") Audit(cmd.Type, Str(cmd.Data, "id"), new { input = cmd.Data, result });
+        if (cmd.Type != "pairConnector" && cmd.Type != "createUser") Audit(cmd.Type, Str(cmd.Data, "id"), Aromazen ? (object)new { input = cmd.Data, result, loginSessionId = dispatchSession } : new { input = cmd.Data, result });
         await db.SaveChangesAsync(); await tx.CommitAsync(); return result;
     }
     async Task<object> Handle(string type, JsonElement d)
     {
         switch (type)
         {
+            case "reopenStockLoad": return await ReopenStockLoad(d);
+            case "beginStockCheck": return await BeginStockCheck(d);
+            case "scanStockCheck": return await ScanStockCheck(d);
+            case "finishStockCheck": return await FinishStockCheck(d);
+            case "savePackingPreset": return await SavePackingPreset(d);
+            case "archivePackingPreset": return await ArchivePackingPreset(d);
             case "registerStockCartons": return await RegisterStockCartons(d);
             case "receiveCarton": throw new RuleException("Inventory receiving scans have been removed. Generating carton QR labels adds packed inventory.", 410);
             case "beginStockDispatch": return await BeginStockDispatch(d);
@@ -187,7 +194,9 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                     Permissions.Require(actor, "PackingClerk", "PackingSupervisor"); RequireReason(d); var cartons = await Selected(d);
                     await EnsureCartonsOrderOpen(cartons);
                     Check(cartons.All(c => c.State is "Available" or "Reserved" || (Aromazen && c.State == "PendingLabel")), "Retired, loaded and dispatched labels cannot be reissued through the packing screen.");
-                    var label = new LabelJob { CompanyId = company, Workflow = workflow, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = CartonCodes.Encode(c.Id, c.Revision, company) })) }; db.Labels.Add(label);
+                    var labelQrs = new Dictionary<string, string>();
+                    foreach (var c in cartons) labelQrs[c.Id] = Aromazen ? await SecureCartonQr(c) : CartonCodes.Encode(c.Id, c.Revision, company);
+                    var label = new LabelJob { CompanyId = company, Workflow = workflow, OperatorId = actor.Id, Reason = Str(d, "reason"), CartonSnapshots = Json.Write(cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, qr = labelQrs[c.Id] })) }; db.Labels.Add(label);
                     if (Aromazen)
                     {
                         foreach (var c in cartons.Where(c => c.State == "PendingLabel"))
@@ -196,7 +205,7 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                             Audit("qrInventoryAdded", c.Id, new { c.Revision, c.Lines, labelJobId = label.Id });
                         }
                     }
-                    return new { id = label.Id, cartons, message = Aromazen ? "QR labels generated. These cartons and products are in inventory. Printing again will not add stock." : "Labels are ready. Print them and attach them to the matching cartons." };
+                    return new { id = label.Id, cartons = Aromazen ? (object)cartons.Select(c => new { c.Id, c.Revision, c.Marking, c.Lines, c.CompanyId, c.State, qr = labelQrs[c.Id] }).ToArray() : cartons, message = Aromazen ? "QR labels generated. These cartons and products are in inventory. Printing again will not add stock." : "Labels are ready. Print them and attach them to the matching cartons." };
                 }
             case "labelStatus":
                 {
@@ -238,14 +247,14 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
                 }
             case "reviseCarton":
                 {
-                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); var c = await Get<Carton>(Str(d, "id")); await EnsureCartonsOrderOpen([c]); Check(c.State == "Available" || (Aromazen && (c.State == "PendingLabel" || c.State == "PendingReceipt" || c.State == "PendingApproval")), "Only unloaded, unallocated cartons can be revised."); var lines = Json.Read<ContentLine[]>(d.GetProperty("lines")); var previous = new { c.Revision, c.Lines }; c.Lines = Json.Write(await Normalize(lines)); c.Revision++; if (Aromazen) c.State = "PendingLabel"; c.Verified = false; c.Attached = false; c.VerifiedAt = null; c.VerifiedBy = null; Audit("contentRevision", c.Id, new { previous, next = c.Lines, reason = Str(d, "reason") }); return new { id = c.Id, revision = c.Revision, message = "Print a new label and check the carton again. The old QR can no longer be used." };
+                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); var c = await Get<Carton>(Str(d, "id")); await EnsureCartonsOrderOpen([c]); Check(c.State == "Available" || (Aromazen && (c.State == "PendingLabel" || c.State == "PendingReceipt" || c.State == "PendingApproval")), "Only unloaded, unallocated cartons can be revised."); var lines = Json.Read<ContentLine[]>(d.GetProperty("lines")); var previous = new { c.Revision, c.Lines }; c.Lines = Json.Write(await Normalize(lines)); c.Revision++; if (Aromazen) { c.State = "PendingLabel"; await CaptureProductionBatches(c,d.GetProperty("lines")); await CopyProductionBatches(c,c,c.Revision-1,d.GetProperty("lines").EnumerateArray().Where(line=>line.TryGetProperty("productionBatch",out _)).Select(line=>Str(line,"sku")).ToHashSet()); } c.Verified = false; c.Attached = false; c.VerifiedAt = null; c.VerifiedBy = null; Audit("contentRevision", c.Id, new { previous, next = c.Lines, reason = Str(d, "reason") }); return new { id = c.Id, revision = c.Revision, message = "Print a new label and check the carton again. The old QR can no longer be used." };
                 }
             case "repack":
                 {
-                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); Check(Flag(d, "physicalConfirmed"), "Confirm a physical split or repack."); var oldCarton = await Get<Carton>(Str(d, "id")); Check(oldCarton.State == "Available", "Only unallocated cartons may be repacked."); var groups = Json.Read<PackedGroup[]>(d.GetProperty("groups")); await ValidateGroups(groups);
+                    Permissions.Require(actor, "PackingSupervisor"); RequireReason(d); Check(Flag(d, "physicalConfirmed"), "Confirm a physical split or repack."); var oldCarton = await Get<Carton>(Str(d, "id")); Check(oldCarton.State == "Available", "Only unallocated cartons may be repacked."); if(Aromazen) Check(!oldCarton.Held,"Resolve the hold before repacking this carton.",409); var groups = Json.Read<PackedGroup[]>(d.GetProperty("groups")); await ValidateGroups(groups);
                     var original = Totals([oldCarton]); var replacement = groups.SelectMany(g => Enumerable.Repeat(g.Lines, g.Count)).SelectMany(x => x).GroupBy(l => l.Sku + "|" + l.Unit + "|" + l.Batch + "|" + l.Godown).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
                     Check(original.Count == replacement.Count && original.All(x => replacement.GetValueOrDefault(x.Key) == x.Value), "Replacement contents must exactly preserve SKU, unit, batch, godown and quantities."); oldCarton.State = "Retired"; oldCarton.Verified = false;
-                    var created = new List<string>(); foreach (var g in groups) for (var i = 0; i < g.Count; i++) { var c = new Carton { Id = NewId("CT-"), CompanyId = company, WarehouseId = oldCarton.WarehouseId, ManifestId = oldCarton.ManifestId, State = InitialCartonState, CustomerId = oldCarton.CustomerId, ParentCartonId = oldCarton.Id, Marking = g.Marking, Lines = Json.Write(await Normalize(g.Lines)) }; db.Cartons.Add(c); created.Add(c.Id); }
+                    var created = new List<string>(); foreach (var g in groups) for (var i = 0; i < g.Count; i++) { var c = new Carton { Id = NewId("CT-"), CompanyId = company, WarehouseId = oldCarton.WarehouseId, ManifestId = oldCarton.ManifestId, State = InitialCartonState, CustomerId = oldCarton.CustomerId, ParentCartonId = oldCarton.Id, Marking = g.Marking, Lines = Json.Write(await Normalize(g.Lines)) }; db.Cartons.Add(c); if(Aromazen) await CopyProductionBatches(oldCarton,c,oldCarton.Revision); created.Add(c.Id); }
                     return new { ids = created, message = Aromazen ? "Old carton retired. Generate QR labels for the replacement cartons to add them to inventory." : "Old carton retired. Attach and verify replacement labels." };
                 }
             case "createTrip":
@@ -329,13 +338,13 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
             case "startLoading":
                 {
                     Permissions.Require(actor, "Loader", "DispatchSupervisor"); var s = await Get<Shipment>(Str(d, "shipmentId")); await EnsureOrderOpenForShipment(s); var trip = await Get<Trip>(s.TripId); Check(!s.LoadApproved && trip.State == "Open" && s.State is "Allocated" or "Loading", "Shipment is not open for loading.");
-                    var station = Str(d, "station"); Check(station.Length is >= 2 and <= 80, "A station name is required."); var other = await db.LoadingSessions.Where(x => x.CompanyId == company && x.Station == station && x.Active).ToListAsync(); other.ForEach(x => x.Active = false); await db.SaveChangesAsync();
+                    var station = Aromazen ? dispatchSession + ":" + s.Id : Str(d, "station"); Check(station.Length is >= 2 and <= 80, "A station name is required."); var other = await db.LoadingSessions.Where(x => x.CompanyId == company && x.Station == station && x.Active).ToListAsync(); other.ForEach(x => x.Active = false); await db.SaveChangesAsync();
                     var session = new LoadingSession { CompanyId = company, UserId = actor.Id, ShipmentId = s.Id, TripId = s.TripId, Station = station }; db.LoadingSessions.Add(session); s.State = "Loading"; return new { id = session.Id, message = "Loading started. Wait for Loaded on screen after each scan." };
                 }
             case "scan":
                 {
                     Permissions.Require(actor, "Loader", "DispatchSupervisor"); var session = await Get<LoadingSession>(Str(d, "sessionId"));
-                    Check(session.Active && session.ExpiresAt > DateTimeOffset.UtcNow && session.UserId == actor.Id && session.Station == Str(d, "station"), "Loading session expired, changed station or belongs to another operator.", 409);
+                    Check(session.Active && session.ExpiresAt > DateTimeOffset.UtcNow && session.UserId == actor.Id && session.Station == (Aromazen ? dispatchSession + ":" + session.ShipmentId : Str(d, "station")), "Loading session expired, changed station or belongs to another operator.", 409);
                     Check(Str(d, "mode") == "live", "Stored/offline scanner replay requires supervised reconciliation.");
                     var s = await Get<Shipment>(session.ShipmentId); await EnsureOrderOpenForShipment(s); Check(!s.LoadApproved && s.State == "Loading", "Shipment is closed for loading."); var trip = await Get<Trip>(s.TripId); Check(trip.State == "Open" && trip.Id == session.TripId, "Trip context changed.");
                     Carton c; try { c = await ResolveQr(Str(d, "qr")); } catch (RuleException e) { return new { outcome = "Rejected", message = e.Message }; }
@@ -470,7 +479,7 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
             case "depart":
                 {
                     Permissions.Require(actor, "DispatchSupervisor"); Check(Flag(d, "physicalConfirmed"), "Confirm vehicle and physical load review."); var t = await Get<Trip>(Str(d, "id")); Check(t.State == "Open", "Trip is not open."); var shipments = await db.Shipments.Where(x => x.CompanyId == company && x.TripId == t.Id && x.State != "Cancelled").ToListAsync(); Check(shipments.Count > 0, "Trip has no shipments.");
-                    foreach (var s in shipments) { await EnsureOrderOpenForShipment(s); Check(s.InvoiceJobId != null, "Each shipment requires a verified invoice."); var job = await Get<PostingJob>(s.InvoiceJobId!); Check(job.State == "Confirmed" && job.VoucherReference != null, "Every shipment needs a Tally invoice confirmed through readback."); var documents = Json.Read<Dictionary<string, string>>(s.Documents); Check(documents.GetValueOrDefault("print") == "OperatorConfirmed", "Confirm the existing invoice was printed."); var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company); if (mapping.StatutoryRequired) Check(!string.IsNullOrEmpty(documents.GetValueOrDefault("statutoryReference")), "Required statutory references unresolved."); foreach (var a in await db.Allocations.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync()) { Check(a.State == "Loaded", "Allocation mismatch."); a.State = "Departed"; (await Get<Carton>(a.CartonId)).State = "Departed"; } s.State = "Departed"; }
+                    foreach (var s in shipments) { await EnsureOrderOpenForShipment(s); Check(s.InvoiceJobId != null, "Each shipment requires a verified invoice."); var job = await Get<PostingJob>(s.InvoiceJobId!); Check(job.State == "Confirmed" && job.VoucherReference != null, "Every shipment needs a Tally invoice confirmed through readback."); var documents = Aromazen ? Json.Read<Dictionary<string, JsonElement>>(s.Documents).Where(entry=>entry.Value.ValueKind==JsonValueKind.String).ToDictionary(entry=>entry.Key,entry=>entry.Value.GetString()??"") : Json.Read<Dictionary<string, string>>(s.Documents); Check(documents.GetValueOrDefault("print") == "OperatorConfirmed", "Confirm the existing invoice was printed."); var mapping = await db.Mappings.SingleAsync(x => x.CompanyId == company); if (mapping.StatutoryRequired) Check(!string.IsNullOrEmpty(documents.GetValueOrDefault("statutoryReference")), "Required statutory references unresolved."); foreach (var a in await db.Allocations.Where(x => x.CompanyId == company && x.ShipmentId == s.Id && x.Active).ToListAsync()) { Check(a.State == "Loaded", "Allocation mismatch."); a.State = "Departed"; (await Get<Carton>(a.CartonId)).State = "Departed"; } s.State = "Departed"; }
                     t.State = "Departed"; t.DepartedAt = DateTimeOffset.UtcNow; return new { message = "Departure recorded. No additional accounting stock movement created." };
                 }
             case "recordDocuments":
@@ -502,13 +511,14 @@ public sealed partial class Operations(DispatchDb db, DeploymentScope deployment
         // identifier (]Qm). It describes the barcode type, not the carton ID.
         if (qr.Length > 3 && qr[0] == ']' && qr[1] == 'Q' && qr[2] is >= '0' and <= '6')
             qr = qr[3..];
+        if (Aromazen && qr.StartsWith("AZ2.")) return await ResolveSecureQr(qr);
         if (qr.Length <= 160 && CartonCodes.TryDecode(qr, out var compactId, out var compactRevision))
         {
             var carton = await Get<Carton>(compactId);
             Check(carton.Revision == compactRevision, "Obsolete label revision. Scan the current attached label.");
-            return carton;
+            await CheckLegacyLabel(carton); return carton;
         }
-        Check(qr.Length <= 160, "QR payload too long."); var parts = qr.Split('|'); Check(parts.Length == 4 && parts[0] == "K1" && parts[1] == company && int.TryParse(parts[3], out _), "Invalid or wrong-company carton QR. Product barcodes cannot identify cartons."); var c = await Get<Carton>(parts[2]); Check(c.Revision.ToString() == parts[3], "Obsolete label revision. Scan the current attached label."); return c;
+        Check(qr.Length <= 160, "QR payload too long."); var parts = qr.Split('|'); Check(parts.Length == 4 && parts[0] == "K1" && parts[1] == company && int.TryParse(parts[3], out _), "Invalid or wrong-company carton QR. Product barcodes cannot identify cartons."); var c = await Get<Carton>(parts[2]); Check(c.Revision.ToString() == parts[3], "Obsolete label revision. Scan the current attached label."); await CheckLegacyLabel(c); return c;
     }
     async Task<TallyInvoicePayload> BuildInvoicePayload(Shipment shipment, Billing billing, Mapping mapping, TallyMasterSnapshot catalog, string jobId, TallyTaxLedgers taxLedgerNames)
     {

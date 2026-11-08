@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: electro-group-dispatch-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.vercel
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: ASPNETCORE_URLS
+        value: http://+:10000
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: DispatchSite
+        value: electro
+      - key: MigrateOnStart
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+
+  - type: web
+    name: aromazen-india-dispatch-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.vercel
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: ASPNETCORE_URLS
+        value: http://+:10000
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: DispatchSite
+        value: aromazon
+      - key: MigrateOnStart
+        value: "false"
+      - key: DATABASE_URL
+        sync: false

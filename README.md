@@ -100,6 +100,15 @@ On the Windows PC that runs TallyPrime, open **F1 (Help) → Settings → Connec
 
 The connector is a Windows-side bridge between the cloud app and Tally’s local XML/HTTP service. Pair it once in Dispatch Settings, run it under the same Windows account used for pairing, and keep it running while Tally is expected to sync or receive invoices. The app does not directly reach into Tally from the public website.
 
+##### Accessing Tally from the client site or from another laptop
+
+There are two separate kinds of access:
+
+- **Using the Dispatch website:** If the site is publicly deployed and you have an authorized account, you can open it from your own laptop over the Internet. You do not need to be on the client's Wi-Fi just to use the website.
+- **Connecting the app to Tally:** The Dispatch connector must run on a Windows PC that can reach the client's TallyPrime installation. In the usual setup, keep Tally and the connector on that client/factory PC, keep the correct company open in Tally, and let the connector reach the cloud site over outbound HTTPS. The connector talks to Tally locally on that PC; the website does not connect directly to Tally.
+
+You can administer the Tally PC from another location only if the client's IT administrator has arranged authorized remote access, such as a company VPN or secured remote desktop. A pairing key or the website URL does not grant remote access to the client's PC. Do not expose Tally's HTTP/XML port (commonly 9000) directly to the public Internet. If initial setup requires hands-on access, use the client's PC or have their IT administrator provide a secure remote session.
+
 #### 6. Refresh, validate, and perform the first real posting carefully
 
 1. Keep Tally open to the exact Electro company and the connector running.
@@ -366,6 +375,8 @@ The API integration scripts need their own test database and credentials, docume
 ## 8. Production hosting and release
 
 The production site is built from `Dockerfile.vercel`: a Node stage builds the React frontend, a .NET 10 stage publishes the API, and the final ASP.NET container serves both from one origin. `vercel.json` routes site requests to this container. PostgreSQL is external to the container; it must not rely on container-local files.
+
+Render demo deployment steps for both independent company sites are in [Render demo deployment](docs/RENDER_DEMO_DEPLOYMENT.md). Existing Vercel deployments remain unchanged until the Render demos pass acceptance.
 
 The production environment requires private Vercel variables such as the database URL, company site (`DispatchSite=electro`), bootstrap settings used for initialization, and any permitted origins. Keep passwords, connection strings, connector keys, and private user data out of GitHub and out of `VITE_*` browser variables. Use TLS for hosted PostgreSQL and restrict who can view production environment variables.
 

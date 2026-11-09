@@ -1,14 +1,24 @@
 # Electro Group of Industries — Dispatch Management System
 
-This repository contains the Dispatch application and its TallyPrime connector, configured as separate company sites. The Electro production setup records customer orders, products packed in each box, label printing, loading scans, billing approval, and sales-invoice posting to its connected Tally company. Aromazen has a separate deployment and database and uses a pack-before-order workflow; its Tally master import and invoice posting are not enabled by the current API implementation.
+This repository contains the Dispatch application and its TallyPrime connector, configured as separate company sites. Electro uses an order-first workflow; Aromazen uses a pack-before-order workflow. The current public demos run on Render, while Vercel configuration remains in the source repository. Keep the companies' databases, users, and connector profiles separate. Electro's API supports the Tally connector; Aromazen's Tally master import and invoice posting are not enabled by the current API implementation.
 
-**Production site:** <https://electro-group-dispatch.vercel.app/>  
+**Current demo sites (Render Free):** [Electro](https://electro-group-dispatch-demo.onrender.com) | [Render dashboard](https://dashboard.render.com/web/srv-dbo1q995efls73clcskg)
+
+[Aromazen](https://aromazen-india-dispatch-demo.onrender.com) | [Render dashboard](https://dashboard.render.com/web/srv-dbo1qdp5efls73cld98g)
+
+**Electro health:** [API health](https://electro-group-dispatch-demo.onrender.com/api/health) returned HTTP 200 and database connected on 8 Nov 2026, but `postingEnabled` was `false`; Tally invoice posting was not ready at that check.
+
+**Aromazen status:** its Render site is deployed, but a connection to its own database has not been verified. The Neon account connected during setup exposed Electro projects only. Never point Aromazen at Electro's database.
+
+**Vercel status:** GitHub showed failed checks for both Vercel projects with “Account is blocked.” These checks are separate from Render's status. Vercel configuration remains in the source repository.
+
 **GitHub repository:** <https://github.com/pranavraok/DISPATCH-MANAGEMENT-SYSTEM>  
-**Production company:** `ELECTRO GROUP OF INDUSTRIES`  
-**Production workflow:** order first  
-**Company scope:** This README’s detailed live Tally instructions apply to Electro. Aromazen has its own site/profile (`DispatchSite=aromazon`), database, users, and connector profile; never share Electro customer/product data, Tally credentials, or invoice mappings with it.
 
-This guide is written for operators, the accountant, and developers. It describes the current source code and the Electro production setup. Provider settings, company accounting details, product tax classifications, and the installed Tally configuration must still be checked against the live environment when they change.
+**Electro company/workflow:** `ELECTRO GROUP OF INDUSTRIES` | order first
+
+**Company scope:** This README's Tally instructions apply to Electro. Keep Aromazen's site/profile (`DispatchSite=aromazon`), database, users, and connector separate; never share Electro customer/product data, Tally credentials, or invoice mappings.
+
+This guide is for operators, the accountant, and developers. It documents the current source behavior and demo hosting status last checked on 8 Nov 2026. Hosting, database, connector, accounting, product tax, and Tally settings can change; verify them in the relevant dashboards before operational use.
 
 ## 1. The four-step daily process
 
@@ -25,9 +35,7 @@ The invoice does not require vehicle number, driver, or logistics fields in the 
 
 The browser application and cloud database can be connected while the Tally PC is offline. In that case, saved work remains accessible, but the Tally snapshot may be stale and invoice creation must wait. The connector heartbeat is expected about every 15 seconds while Tally is reachable. Electro product/customer masters are refreshed about every two minutes. The browser refreshes saved state periodically and also has a manual refresh button.
 
-The public health endpoint is `https://electro-group-dispatch.vercel.app/api/health`. A healthy response reports the API, database, company, and whether the current connector/master/mapping conditions allow posting at that moment. A green connection indicator alone does **not** prove that a specific invoice exists in Tally. Check that invoice’s own row for **Confirmed/Completed** and its voucher number.
-
-At the time this guide was prepared, the production health check returned the Electro API and database as connected with invoice posting enabled. A previous invoice row showed a Tally voucher confirmed through exact-reference readback. This is a point-in-time check, not a promise that the Tally PC, network, hosting account, or database will always be available.
+The Electro demo health endpoint is [`https://electro-group-dispatch-demo.onrender.com/api/health`](https://electro-group-dispatch-demo.onrender.com/api/health). It reports API, database, site, and current invoice-posting readiness. On 8 Nov 2026 it returned HTTP 200 with `database: Connected` and `postingEnabled: false`. That confirms API/database availability only; it does not mean the Tally connector is paired, the invoice mapping is validated, or a voucher was created. For a real invoice, check its own **Confirmed/Completed** status and voucher number in Tally.
 
 ## 2. Tally data and accounting behavior
 
@@ -210,7 +218,7 @@ The connector must run on the Windows PC where TallyPrime is running. The browse
    .\Dispatch.Connector.exe --pair --profile electro
    ```
 
-   Enter the website’s base HTTPS address, for example `https://electro-group-dispatch.vercel.app` (do not add `/api`); the connector ID; the exact Tally company; `http://127.0.0.1:9000` if that is the verified port; and the one-time pairing key at the hidden prompt.
+   Enter the website's base HTTPS address, for the current demo `https://electro-group-dispatch-demo.onrender.com` (do not add `/api`); the connector ID; the exact Tally company; `http://127.0.0.1:9000` if that is the verified port; and the one-time pairing key at the hidden prompt.
 
    Pairing checks that the website is the Electro site and that the Tally endpoint is loopback. The credential is protected with Windows Current User DPAPI. Run the connector under the same Windows account that performed pairing.
 5. **Start it:** run `Dispatch.Connector.exe --profile electro`. Leave Tally open to the exact company and keep the connector PC online. The Settings page should show a recent heartbeat and a successful master-sync diagnostic. After a successful setup, configure Task Scheduler to start the connector at that Windows user’s sign-in if it is not already configured. Do not start multiple copies; a local lock prevents parallel connector instances.
@@ -246,7 +254,7 @@ Some steps require more than one role. For example, **Confirm labels & contents*
 Operator browser (React / TypeScript)
         │ HTTPS, session cookie + CSRF token
         ▼
-Electro API (ASP.NET Core 10, hosted as a Vercel container)
+Electro API (ASP.NET Core 10, hosted in the current Render demo container)
         │ EF Core / Npgsql
         ▼
 PostgreSQL (company-scoped operational state, audit, request/outbox)
@@ -356,7 +364,7 @@ Publish a self-contained Windows x64 connector:
 ./scripts/publish-connector.ps1
 ```
 
-Output is written to `artifacts/connector/`. The script requires the pinned .NET 10 SDK. A deployed Vercel container build uses the SDK image specified in `Dockerfile.vercel`.
+Output is written to `artifacts/connector/`. The script requires the pinned .NET 10 SDK. The current Render demo container build uses the SDK image specified in `Dockerfile.vercel`.
 
 ### Tests and validation
 
@@ -372,15 +380,24 @@ dotnet run --project src/Dispatch.Connector -- --self-test
 
 The API integration scripts need their own test database and credentials, documented in `docs/VALIDATION.md`. Never run fixture or load-test scripts against the production database or a live Tally company. A successful software test does not replace a physical scanner/printer check or an accountant’s validation.
 
-## 8. Production hosting and release
+## 8. Demo hosting and release status
 
-The production site is built from `Dockerfile.vercel`: a Node stage builds the React frontend, a .NET 10 stage publishes the API, and the final ASP.NET container serves both from one origin. `vercel.json` routes site requests to this container. PostgreSQL is external to the container; it must not rely on container-local files.
+The application image is built from `Dockerfile.vercel`: a Node stage builds the React frontend, a .NET 10 stage publishes the API, and the ASP.NET container serves both from one origin. The filename and `vercel.json` are retained for source compatibility; the current public demo services run on Render. PostgreSQL is external to each app container.
 
-Render demo deployment steps for both independent company sites are in [Render demo deployment](docs/RENDER_DEMO_DEPLOYMENT.md). Existing Vercel deployments remain unchanged until the Render demos pass acceptance.
+### Current Render demos
 
-The production environment requires private Vercel variables such as the database URL, company site (`DispatchSite=electro`), bootstrap settings used for initialization, and any permitted origins. Keep passwords, connection strings, connector keys, and private user data out of GitHub and out of `VITE_*` browser variables. Use TLS for hosted PostgreSQL and restrict who can view production environment variables.
+- **Electro:** [open the site](https://electro-group-dispatch-demo.onrender.com) | [Render dashboard](https://dashboard.render.com/web/srv-dbo1q995efls73clcskg). Its `DATABASE_URL` points to the populated Electro Neon database. Last checked 8 Nov 2026: `/api/health` returned HTTP 200, database connected, and `postingEnabled: false`. Tally posting still requires a reachable paired connector and validated production mapping.
+- **Aromazen:** [open the site](https://aromazen-india-dispatch-demo.onrender.com) | [Render dashboard](https://dashboard.render.com/web/srv-dbo1qdp5efls73cld98g). Its own company database has not been configured/verified. The Neon account available during setup exposed Electro projects only. Do not use Electro's database for Aromazen.
 
-This project has used direct Vercel CLI production deployments. A direct deployment can update the live website without creating a GitHub commit; source history and deployment history are separate unless a verified Git integration is configured. Before relying on an automatic Git-to-Vercel pipeline, confirm in the Vercel project that it is linked to the intended GitHub repository and branch. After a release, check the Vercel deployment state and `/api/health`.
+Both Render services use the Free plan in Singapore and deploy on commits. Free services can sleep when idle; check Render's current plan limits and service status before a client demonstration. No hosting free tier should be described as permanent.
+
+### Vercel and GitHub status
+
+The repository still contains Vercel deployment configuration, and old Vercel project URLs may remain in deployment history. As shown in GitHub on 8 Nov 2026, checks for `electro-group-dispatch` and `aromazon-india-dispatch` failed with “Account is blocked.” This is a Vercel account/deployment check, not evidence that the application source or Render services failed. Do not use those checks as the Render health signal.
+
+Keep deployment secrets private in the hosting provider's environment settings, not in GitHub or `VITE_*` browser variables. Use TLS for hosted PostgreSQL and limit secret access.
+
+For each release, verify the Render deploy state and `/api/health`. For Electro Tally posting, also verify the connector heartbeat, fresh masters, validated mapping, and the specific voucher readback in Tally.
 
 `MigrateOnStart` is intended for controlled schema migrations. Set it only according to the deployment runbook and database backup/change policy. Bootstrap passwords are initialization credentials, not daily operator logins; disable unnecessary automatic seeding after initial setup and create named users in the app.
 
@@ -407,7 +424,7 @@ Backup and restore helpers are in `scripts/backup.ps1` and `scripts/restore-test
 | Invoice PDF is unavailable | The PDF is only available after exact Tally voucher readback is `Confirmed`. A queued or claimed job is not a confirmed invoice. |
 | Tally rejects an invoice date | TallyPrime EDU imposes its own date restrictions. The app does not override the license mode; follow Tally’s allowed date or ask about a licensed edition. |
 
-When reporting a problem, include the page, PO reference, shipment or invoice row, exact status/message, local time, and Vercel deployment ID if available. Do not send passwords, connector keys, database URLs, or customer private data in a screenshot or support message.
+When reporting a problem, include the page, PO reference, shipment or invoice row, exact status/message, local time, and the relevant Render service/deploy ID. If the issue is a Vercel check, include the project name and “Account is blocked” status. Do not send passwords, connector keys, database URLs, or customer private data in a screenshot or support message.
 
 ## 10. Important operating controls
 
@@ -433,7 +450,7 @@ The files in `docs/` include historical design and validation notes. If an older
 
 ## 12. Roll out the pack → label → order → dispatch workflow for Aromazen
 
-Aromazen must remain a separate company site. The repository already contains an Aromazen site profile, and the workflow documentation describes a separate Aromazen deployment at <https://aromazon-india-dispatch.vercel.app/> with its own database and `DispatchSite=aromazon`. Its configured workflow is currently **Pack before order**. Do not assume that the Electro invoice integration or its synced masters work for Aromazen: the current API deliberately accepts Tally master imports only for Electro and enables production invoice posting only for Electro. This section is the implementation and release plan for extending the app safely; it does not mean Aromazen is already Tally-ready.
+Aromazen must remain a separate company site. Its current Render demo is <https://aromazen-india-dispatch-demo.onrender.com>, with `DispatchSite=aromazon` and the **Pack before order** workflow. As of 8 Nov 2026, its company-specific database connection had not been verified; the connected Neon account exposed Electro projects only. Do not point Aromazen at Electro's database. The API deliberately accepts Tally master imports and enables production invoice posting only for Electro. This section is a separate-company rollout plan, not a claim that Aromazen is ready for Tally posting.
 
 ### Intended Aromazen operator flow
 
@@ -455,7 +472,7 @@ This differs from Electro’s current Order → pack/labels → scan → bill se
 4. **Use Aromazen-scoped labels and scans.** QR payloads and server validation must bind to the Aromazen site/company. The scan screen must show the selected Aromazen order/shipment, accept only its currently allocated box labels, reject Electro or unknown labels, and wait for a persisted scan result before updating the loaded count. Keep report and Past Orders history scoped to Aromazen.
 5. **Complete the API and UI company gates.** Extend Tally-master sync and invoice-posting checks only if Aromazen is meant to use Tally. Update the fixed-site readiness checks, company-specific mapping validation, allowed connector endpoints, user/role setup, invoice document branding, and health output. Do not remove the existing Electro production safeguards to make the second company work. Keep company-specific acceptance checks and database constraints in place.
 6. **Configure Tally separately if invoicing is required.** In Aromazen’s own Tally company, have its accountant verify company GST registration, customers, product masters/units, actual HSN and rates, actual standard selling prices and booked stock, Sales Accounts ledger, output tax ledgers, and any charge ledgers. Follow the Tally setup checklist earlier in this README, but enter Aromazen’s values only. Create a separate connector pairing with `--profile aromazon`, its Aromazen HTTPS site URL, exact Tally company name, and verified local Tally endpoint. The connector stores a separate Windows-protected credential for that profile. Do not start two Tally instances on the same port unless the accountant/IT administrator has deliberately configured distinct reachable endpoints.
-7. **Deploy and verify independently.** Deploy the Aromazen build to its own Vercel project with `DispatchSite=aromazon` and Aromazen-only secrets/database. Apply reviewed database migrations and initialize only the Aromazen company and named users. Verify health, company/site identity, fixed pack-first workflow, login, order/box isolation, scanner flow, history, and access controls. If Tally invoicing is included, additionally verify fresh master sync, accounting mapping validation, one accountant-approved controlled voucher, exact-reference readback, and PDF contents before allowing ordinary invoice posting.
+7. **Deploy and verify independently.** Use the Aromazen Render service with `DispatchSite=aromazon` and Aromazen-only secrets/database; connect its correct company database before treating the demo as operational. Apply reviewed database migrations and initialize only the Aromazen company and named users. Verify health, company/site identity, fixed pack-first workflow, login, order/box isolation, scanner flow, history, and access controls. If Tally invoicing is included later, also implement Aromazen's API/connector support and verify fresh master sync, accounting mapping, an accountant-approved controlled voucher, exact-reference readback, and PDF contents before ordinary posting.
 8. **Pilot with real operations.** Start with a small real packing batch and one authorized real order. Physically compare each packed box’s contents and QR label, test one scan per allocated box, check remaining stock and order history, and confirm the Tally result if invoicing is enabled. Keep posting disabled if any master, tax, stock, reservation, scan, or voucher check fails.
 
-Release is complete only when the Aromazen user experience, production data boundary, physical label/scan checks, and—if requested—Tally create/readback have all been verified on the Aromazen deployment. Electro should continue to run on its own site and database throughout the rollout.
+Release is complete only when the Aromazen user experience, production data boundary, physical label/scan checks, and, if requested, Tally create/readback have all been verified on the Aromazen deployment. Electro should continue to run on its own site and database throughout the rollout.
